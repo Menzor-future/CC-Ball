@@ -214,36 +214,41 @@ class UsageWidget(tk.Tk):
 
     # ---- 渲染 ----
     def _render(self, providers, results, error):
-        _ui_log(f"_render start: providers={len(providers)} error={error}")
-        for i, p in enumerate(providers):
-            res = results.get(p["id"], {})
-            _ui_log(f"  provider[{i}] id={p['id']} name={p['name']} type={p['provider_type']} has_error={'error' in res}")
+        try:
+            _ui_log(f"_render start: providers={len(providers)} error={error}")
+            for i, p in enumerate(providers):
+                res = results.get(p["id"], {})
+                _ui_log(f"  provider[{i}] id={p['id']} name={p['name']} type={p['provider_type']} has_error={'error' in res}")
 
-        # 清旧行
-        for row_cells in self._rows:
-            for cell in row_cells:
-                cell.destroy()
-        self._rows.clear()
+            # 清旧行（防御 None 占位）
+            for row_cells in self._rows:
+                for cell in row_cells:
+                    if cell is not None:
+                        cell.destroy()
+            self._rows.clear()
 
-        if error:
-            _ui_log("_render error branch")
-            self._render_error(error)
-            self._finalize_geometry(data_rows=2)
-            return
-        if not providers:
-            _ui_log("_render no providers branch")
-            self._render_error("未找到 provider 配置")
-            self._finalize_geometry(data_rows=2)
-            return
+            if error:
+                _ui_log("_render error branch")
+                self._render_error(error)
+                self._finalize_geometry(data_rows=2)
+                return
+            if not providers:
+                _ui_log("_render no providers branch")
+                self._render_error("未找到 provider 配置")
+                self._finalize_geometry(data_rows=2)
+                return
 
-        for row_idx, provider in enumerate(providers, start=1):
-            _ui_log(f"_render row {row_idx} {provider['id']}")
-            self._render_provider_row(row_idx, provider, results.get(provider["id"], {}))
+            for row_idx, provider in enumerate(providers, start=1):
+                _ui_log(f"_render row {row_idx} {provider['id']}")
+                self._render_provider_row(row_idx, provider, results.get(provider["id"], {}))
 
-        _ui_log(f"_render finalize: rows_created={len(self._rows)}")
-        self._finalize_geometry(data_rows=len(providers))
+            _ui_log(f"_render finalize: rows_created={len(self._rows)}")
+            self._finalize_geometry(data_rows=len(providers))
 
-        self.updated_label.config(text=f"更新于 {dt.datetime.now().strftime('%H:%M:%S')}")
+            self.updated_label.config(text=f"更新于 {dt.datetime.now().strftime('%H:%M:%S')}")
+        except Exception as exc:
+            _ui_log(f"_render EXCEPTION: {type(exc).__name__}: {exc}")
+            raise
 
     def _finalize_geometry(self, data_rows=0):
         """根据数据行数精确设置窗口大小，避免右侧空白或高度抖动。"""
@@ -300,8 +305,7 @@ class UsageWidget(tk.Tk):
                 font=font, anchor="e",
             ).pack(side="right", padx=6)
             cells.append(cell)
-            # 占位，保持列表长度一致
-            cells.append(None)
+            # DeepSeek 跨两列，后面不需要再单独放 cell
         else:
             h5 = res.get("h5_remaining")
             d7 = res.get("d7_remaining")
