@@ -1,6 +1,6 @@
 # PRD：Key 用量悬浮面板（key-usage-widget）
 
-> 状态：待阿泽审阅（审阅通过后才开工）
+> 状态：已完成（2026-09-16）
 > 日期：2026-09-16
 
 ## 1. 背景与目标
@@ -86,12 +86,12 @@ D:\Mings_Project\key-usage-widget\
 
 > 规则：一项完成 → 勾选 → 更新进度 → 一次本地提交。
 
-- [ ] M1 项目骨架：`git init` + 分支 `feature/key-usage-widget` + 目录结构 + `config.py`
-- [ ] M2 `ccdb.py`：key 去重读取、当前 key 判定、平台消耗聚合（附自测输出验证）
-- [ ] M3 `quota.py`：DeepSeek 余额 + Kimi 账号信息查询，子线程并发、超时、异常处理（附自测输出验证）
-- [ ] M4 `ui.py` + `app.pyw`：悬浮窗、卡片、手动刷新、底部汇总行
-- [ ] M5 体验完善：自动刷新、低余额/异常变色、当前 key 角标、窗口位置记忆
-- [ ] M6 README + 整体验收（阿泽双击试用，对照第 8 节验收标准）
+- [x] M1 项目骨架：`git init` + 分支 `feature/key-usage-widget` + 目录结构 + `config.py`
+- [x] M2 `ccdb.py`：key 去重读取、当前 key 判定、平台消耗聚合（附自测输出验证）
+- [x] M3 `quota.py`：DeepSeek 余额 + Kimi 账号信息查询，子线程并发、超时、异常处理（附自测输出验证）
+- [x] M4 `ui.py` + `app.pyw`：悬浮窗、卡片、手动刷新、底部汇总行
+- [x] M5 体验完善：自动刷新、低余额/异常变色、当前 key 角标、窗口位置记忆
+- [x] M6 README + 整体验收（阿泽双击试用，对照第 8 节验收标准）
 
 ## 8. 验收标准
 
