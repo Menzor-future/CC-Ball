@@ -188,11 +188,10 @@ class UsageWidget(tk.Tk):
         """Windows 11 用 DWM 设置 Acrylic/Mica；失败则退回 tkinter alpha。"""
         hwnd = self.winfo_id()
         _ui_log(f"_apply_glass_background: hwnd={hwnd}")
-        ok = _set_window_transparent(hwnd)
-        _ui_log(f"_apply_glass_background: transparent={ok}")
-        # 暂时禁用 DWM Acrylic/Mica，排查 color key 是否生效
-        # if not _set_window_acrylic_mica(hwnd):
-        #     self.attributes("-alpha", WINDOW_ALPHA)
+        # 测试：不用 LWA_COLORKEY，改用 LWA_ALPHA 整体半透明
+        # ok = _set_window_transparent(hwnd)
+        ok = _set_window_alpha(hwnd, 180)
+        _ui_log(f"_apply_glass_background: alpha_transparent={ok}")
 
     # ---- 拖动 ----
     def _start_drag(self, event):
@@ -650,6 +649,31 @@ def _set_window_transparent(hwnd):
         return bool(result) and (new_exstyle & WS_EX_LAYERED)
     except Exception as exc:
         _ui_log(f"SetWindowTransparent EXCEPTION: {type(exc).__name__}: {exc}")
+        return False
+
+
+def _set_window_alpha(hwnd, alpha=180):
+    """
+    使用 Win32 API 设置窗口整体半透明（LWA_ALPHA）。
+    alpha: 0-255，255 为不透明。
+    返回是否成功。
+    """
+    try:
+        GWL_EXSTYLE = -20
+        WS_EX_LAYERED = 0x00080000
+        LWA_ALPHA = 0x00000002
+        user32 = ctypes.windll.user32
+
+        user32.SetWindowLongW.restype = ctypes.c_long
+        user32.SetWindowLongW.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_long]
+
+        exstyle = user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
+        user32.SetWindowLongW(hwnd, GWL_EXSTYLE, exstyle | WS_EX_LAYERED)
+
+        result = user32.SetLayeredWindowAttributes(hwnd, 0, alpha, LWA_ALPHA)
+        return bool(result)
+    except Exception as exc:
+        _ui_log(f"SetWindowAlpha EXCEPTION: {type(exc).__name__}: {exc}")
         return False
 
 
