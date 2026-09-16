@@ -135,18 +135,18 @@ D:\Mings_Project\key-usage-widget\
 
 ```
 ┌─ Key 用量面板          ⟳ ✕─┐
-│ 商名        模型      5h    7day │
-│ Kimi-1   k2.7-code   99%   70%  │
-│ Kimi-2   k3[1M]      85%   45%  │
-│ DeepSeek v4-pro      余额 ¥6.25 │
-│ DeepSeek v4-flash    余额 ¥6.25 │
-│ Claude   claude-sonnet N/A  N/A │
-└──── 更新于 14:32 ──────────────┘
+│ 商名        模型      5h         7day       │
+│ Kimi-1   k2.7-code   99%(3h)   70%(1d2h)  │
+│ Kimi-2   k3[1M]      85%(2h)   45%(5d)    │
+│ DeepSeek v4-pro      余额 ¥6.25           │
+│ DeepSeek v4-flash    余额 ¥6.25           │
+│ Claude   claude-sonnet N/A     N/A        │
+└──── 更新于 14:32 ──────────────────────────┘
 ```
 
-- 背景透明度：`alpha=0.70`（70% 不透明）
-- 窗口尺寸：约 `420x160` 起，根据行数自适应高度
-- 当前使用的 provider 行用不同背景色高亮
+- 背景透明度：`alpha=0.90`（90% 不透明）
+- 窗口尺寸：约 `520x160` 起，根据行数自适应宽度/高度
+- 当前使用的 provider 行**文字加粗** + 背景高亮
 - 自动刷新：每分钟刷新一次（`REFRESH_INTERVAL_S = 60`）
 - 表头可点击列排序（至少支持按商名排序）
 
@@ -154,8 +154,8 @@ D:\Mings_Project\key-usage-widget\
 
 - `ccdb.py`：新增 `read_providers()` 返回每个 provider 配置（不再按 key 去重）；新增 `get_default_model()`
 - `quota.py`：新增 `query_kimi_usages(token)` 解析 5h/7day；新增 `query_claude_usage(oauth_token)` 作为 Claude Official 预留
-- `ui.py`：重写为表格布局，半透明背景，移除旧卡片代码
-- `config.py`：新增 `WINDOW_ALPHA = 0.70`；`REFRESH_INTERVAL_S` 改为 `60`
+- `ui.py`：重写为表格布局，半透明背景；在 5h/7day 百分比后括号显示 `reset_time` 剩余时间
+- `config.py`：新增 `WINDOW_ALPHA = 0.90`；`REFRESH_INTERVAL_S` 改为 `60`
 - `README.md` 与 `PRD.md` 同步更新
 
 ## v2-6 里程碑 checklist
@@ -164,3 +164,4 @@ D:\Mings_Project\key-usage-widget\
 - [x] V2-M2 Quota 层：Kimi `/v1/usages` 5h/7day 解析 + Claude `/api/oauth/usage` 预留
 - [x] V2-M3 UI 重写：半透明 + 4 列表格 + 当前 provider 高亮 + 紧凑尺寸
 - [x] V2-M4 测试与文档：冒烟测试覆盖新列、README 更新、PRD checklist 完成
+- [x] V2-M5 时间提示：在 5h/7day 百分比后括号显示 reset_time 倒计时；透明度 90%；当前行加粗高亮

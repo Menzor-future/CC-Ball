@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """悬浮窗 UI：半透明表格，展示 商名 | 模型 | 5h | 7day。"""
+import datetime as dt
 import threading
 import tkinter as tk
 from tkinter import font as tkfont
@@ -27,7 +28,7 @@ HEADER_BG = "#25252c"
 GRID = "#35353d"
 
 COLS = ["商名", "模型", "5h", "7day"]
-COL_WIDTHS = [120, 130, 60, 60]
+COL_WIDTHS = [120, 130, 95, 95]
 
 
 class UsageWidget(tk.Tk):
@@ -43,6 +44,7 @@ class UsageWidget(tk.Tk):
         # 字体
         self.font_header = tkfont.Font(family="Microsoft YaHei UI", size=9, weight="bold")
         self.font_body = tkfont.Font(family="Microsoft YaHei UI", size=9)
+        self.font_body_bold = tkfont.Font(family="Microsoft YaHei UI", size=9, weight="bold")
         self.font_small = tkfont.Font(family="Microsoft YaHei UI", size=8)
 
         # 拖动
@@ -196,17 +198,18 @@ class UsageWidget(tk.Tk):
     def _render_provider_row(self, row_idx, provider, res):
         is_current = provider["is_current"]
         bg = BG_CURRENT if is_current else BG
+        font = self.font_body_bold if is_current else self.font_body
         cells = []
 
         # 商名
-        cells.append(self._cell(row_idx, 0, provider["name"], bg, anchor="w"))
+        cells.append(self._cell(row_idx, 0, provider["name"], bg, font=font, anchor="w"))
         # 模型
-        cells.append(self._cell(row_idx, 1, provider["model"], bg, anchor="w", fg=TEXT_DIM))
+        cells.append(self._cell(row_idx, 1, provider["model"], bg, font=font, anchor="w", fg=TEXT_DIM))
 
         ptype = provider["provider_type"]
         if "error" in res:
-            cells.append(self._cell(row_idx, 2, res["error"], bg, fg=RED, anchor="e"))
-            cells.append(self._cell(row_idx, 3, "", bg))
+            cells.append(self._cell(row_idx, 2, res["error"], bg, font=font, fg=RED, anchor="e"))
+            cells.append(self._cell(row_idx, 3, "", bg, font=font))
         elif ptype == "deepseek":
             try:
                 bal = float(res.get("balance", "0"))
@@ -221,7 +224,7 @@ class UsageWidget(tk.Tk):
             cell.grid_propagate(False)
             tk.Label(
                 cell, text=text, fg=color, bg=bg,
-                font=self.font_body, anchor="e",
+                font=font, anchor="e",
             ).pack(side="right", padx=6)
             cells.append(cell)
             # 占位，保持列表长度一致
@@ -231,24 +234,24 @@ class UsageWidget(tk.Tk):
             d7 = res.get("d7_remaining")
             cells.append(self._cell(
                 row_idx, 2,
-                self._fmt_pct(h5), bg,
+                self._fmt_pct(h5, res.get("h5_reset")), bg, font=font,
                 fg=self._pct_color(h5), anchor="e",
             ))
             cells.append(self._cell(
                 row_idx, 3,
-                self._fmt_pct(d7), bg,
+                self._fmt_pct(d7, res.get("d7_reset")), bg, font=font,
                 fg=self._pct_color(d7), anchor="e",
             ))
 
         self._rows.append(cells)
 
-    def _cell(self, row, col, text, bg, fg=TEXT, anchor="w"):
+    def _cell(self, row, col, text, bg, fg=TEXT, font=None, anchor="w"):
         cell = tk.Frame(self.table, bg=bg, width=COL_WIDTHS[col], height=26)
         cell.grid(row=row, column=col, sticky="nsew", padx=1, pady=1)
         cell.grid_propagate(False)
         tk.Label(
             cell, text=text, fg=fg, bg=bg,
-            font=self.font_body, anchor=anchor,
+            font=font or self.font_body, anchor=anchor,
         ).pack(side="left" if anchor == "w" else "right", padx=6)
         return cell
 
@@ -262,10 +265,42 @@ class UsageWidget(tk.Tk):
         self._rows.append([cell])
 
     @staticmethod
-    def _fmt_pct(value):
+    def _fmt_pct(value, reset_time=None):
+        pct = UsageWidget._fmt_pct_raw(value)
+        if value is None or not reset_time:
+            return pct
+        return f"{pct} ({UsageWidget._fmt_countdown(reset_time)})"
+
+    @staticmethod
+    def _fmt_pct_raw(value):
         if value is None:
             return "N/A"
         return f"{max(0.0, min(1.0, value)) * 100:.0f}%"
+
+    @staticmethod
+    def _fmt_countdown(reset_time):
+        """把 ISO reset_time 格式化为剩余时间，如 2h15m / 1d3h / expired。"""
+        if not reset_time:
+            return "-"
+        try:
+            # Python 3.9 fromisoformat 不支持 'Z' 后缀
+            ts = reset_time.replace("Z", "+00:00")
+            reset = dt.datetime.fromisoformat(ts)
+            now = dt.datetime.now(dt.timezone.utc)
+            delta = reset - now
+            if delta.total_seconds() <= 0:
+                return "expired"
+            total_seconds = int(delta.total_seconds())
+            days = total_seconds // 86400
+            hours = (total_seconds % 86400) // 3600
+            minutes = (total_seconds % 3600) // 60
+            if days > 0:
+                return f"{days}d{hours}h"
+            if hours > 0:
+                return f"{hours}h{minutes}m"
+            return f"{minutes}m"
+        except Exception:
+            return "-"
 
     @staticmethod
     def _pct_color(value):
