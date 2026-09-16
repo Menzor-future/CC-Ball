@@ -1,53 +1,40 @@
 # -*- coding: utf-8 -*-
-"""冒烟测试：不弹窗，验证数据读取与 quota 查询。"""
+"""冒烟测试：不弹窗，验证 provider 读取与 quota 查询。"""
 import sys
 
 sys.path.insert(0, r"D:\Mings_Project\key-usage-widget")
 
-from keymon.ccdb import platform_usage, read_keys
+from keymon.ccdb import read_providers
 from keymon.quota import fetch_all
 
 
 def main():
-    keys_info = read_keys()
-    assert not keys_info["error"], keys_info["error"]
-    keys = keys_info["keys"]
-    assert len(keys) == 4, f"expected 4 keys, got {len(keys)}"
+    data = read_providers()
+    assert not data["error"], data["error"]
+    providers = data["providers"]
+    assert len(providers) >= 1, "expected at least one provider"
 
-    # 当前 provider 必须匹配 settings
-    current = [k for k in keys if k["is_current"]]
-    assert len(current) == 1, f"expected exactly 1 current key, got {len(current)}"
-    print(f"current key: {current[0]['name']} tail={current[0]['token_tail']}")
+    current = [p for p in providers if p["is_current"]]
+    assert len(current) == 1, f"expected exactly 1 current provider, got {len(current)}"
+    print(f"current provider: {current[0]['name']} model={current[0]['model']}")
 
-    # 类型分布
-    ptypes = {k["provider_type"]: 0 for k in keys}
-    for k in keys:
-        ptypes[k["provider_type"]] += 1
-    assert ptypes.get("deepseek") == 1, ptypes
-    assert ptypes.get("kimi") == 3, ptypes
-
-    # 并发查询
-    results = fetch_all(keys)
-    deepseek = next(k for k in keys if k["provider_type"] == "deepseek")
-    ds_res = results[deepseek["token_tail"]]
-    assert "error" not in ds_res, ds_res
-    assert float(ds_res["balance"]) >= 0
-    print(f"deepseek balance: {ds_res['balance']} {ds_res['currency']}")
-
-    for k in keys:
-        if k["provider_type"] == "kimi":
-            res = results[k["token_tail"]]
+    results = fetch_all(providers)
+    for p in providers:
+        res = results[p["id"]]
+        if p["provider_type"] == "kimi":
             assert "error" not in res, res
-            assert res.get("level_name")
-            print(f"kimi {k['token_tail']}: {res['nickname']} / {res['level_name']}")
-
-    # 用量统计
-    today = platform_usage(24)
-    week = platform_usage(168)
-    assert not today["error"]
-    assert not week["error"]
-    print(f"today tokens: {today['total_tokens']:,}")
-    print(f"week tokens: {week['total_tokens']:,}")
+            assert isinstance(res.get("h5_remaining"), float)
+            assert isinstance(res.get("d7_remaining"), float)
+            print(
+                f"[kimi] {p['name']:22} {p['model']:18} "
+                f"5h={res['h5_remaining']*100:.0f}% 7d={res['d7_remaining']*100:.0f}%"
+            )
+        elif p["provider_type"] == "deepseek":
+            assert "error" not in res, res
+            assert float(res["balance"]) >= 0
+            print(f"[deepseek] {p['name']:22} {p['model']:18} balance={res['balance']} {res['currency']}")
+        else:
+            print(f"[{p['provider_type']}] {p['name']:22} {p['model']:18} -> {res}")
 
     print("\nSMOKE PASSED")
 

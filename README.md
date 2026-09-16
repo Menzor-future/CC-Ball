@@ -1,16 +1,17 @@
 # Key 用量面板
 
-一个 Windows 桌面悬浮窗，实时显示你 cc-switch 里配置的 AI key 余额/用量。纯标准库，零第三方依赖。
+一个 Windows 桌面悬浮窗，实时显示 cc-switch 里每个 provider 的余额/用量。纯标准库，零第三方依赖。
 
 ## 功能
 
-- 自动读取 `~/.cc-switch/cc-switch.db` 中的 Claude providers，按 token 去重展示
-- DeepSeek：显示实时人民币余额
-- Kimi：显示账号昵称/等级/ID 尾号（官方未开放额度接口，所以显示"额度不可查"）
-- 当前使用的 provider 带蓝色「当前使用」角标
-- 底部展示今日 / 本周平台级 token 消耗（按 model 名前缀聚合；**无法按 key 拆分**，cc-switch 本地数据不支持）
-- 自动每 5 分钟刷新；点击右上角 ⟳ 手动刷新
-- 拖动窗口后自动记忆位置，下次启动恢复
+- 自动读取 `~/.cc-switch/cc-switch.db` 中的 Claude providers，**每个 provider 配置一行**
+- 半透明背景（70% 不透明）、紧凑表格布局
+- **Kimi For Coding**：显示 5 小时 / 7 天剩余用量百分比
+- **DeepSeek**：显示人民币余额
+- **Claude Official**：预留 5h/7day 显示，需要 Claude Code 登录后的 OAuth token（本机未登录时显示 `N/A`）
+- 当前使用的 provider 行高亮
+- 每分钟自动刷新；右上角 ⟳ 可手动刷新
+- 拖动窗口后自动记忆位置
 
 ## 安装与运行
 
@@ -31,16 +32,25 @@ pythonw app.pyw
 | 常量 | 说明 | 默认值 |
 |---|---|---|
 | `PROXY_URL` | HTTP 代理地址，留空则直连 | `http://127.0.0.1:7890` |
-| `REFRESH_INTERVAL_S` | 自动刷新间隔（秒） | `300` |
-| `LOW_BALANCE_CNY` | DeepSeek 余额低于该值卡片变橙色 | `5.0` |
+| `REFRESH_INTERVAL_S` | 自动刷新间隔（秒） | `60` |
+| `LOW_BALANCE_CNY` | DeepSeek 余额低于该值变橙色提醒 | `5.0` |
+| `WINDOW_ALPHA` | 背景不透明度（0.0–1.0） | `0.70` |
 
 用户数据（窗口位置）保存在 `%LOCALAPPDATA%\key-usage-widget\config.json`。
 
+## 数据源
+
+| Provider | 5h/7day | 余额 |
+|---|---|---|
+| Kimi For Coding | `GET https://api.kimi.com/coding/v1/usages` | 无 |
+| DeepSeek | 无官方接口 | `GET https://api.deepseek.com/user/balance` |
+| Claude Official | `https://api.anthropic.com/api/oauth/usage`（需 OAuth） | 不适用 |
+
 ## 已知限制
 
-- 不显示 Claude 官方订阅的「五小时 / 七天」用量（需要已登录 Claude Code 的 OAuth token）。如需可后续扩展。
-- Kimi 账号余额/额度暂无公开 API，只能展示账号信息。
-- 平台级消耗统计依赖 cc-switch 的 `proxy_request_logs`；如果 cc-switch 关闭 session_log 同步，该数据可能为空或滞后。
+- Claude Official 的 5h/7day 需要本机已登录 Claude Code；当前未检测登录态时会显示 `N/A`。
+- Kimi 只展示 5h/7day 百分比，没有实时余额接口。
+- DeepSeek 没有 5h/7day 接口。
 
 ## 安全说明
 
@@ -50,11 +60,14 @@ pythonw app.pyw
 ## 开发/调试
 
 ```bash
-# 查看从 cc-switch 读到了哪些 key
+# 查看从 cc-switch 读到了哪些 provider
 python -m keymon.ccdb
 
-# 测试各 key 的余额/账号查询
+# 测试各 provider 的用量/余额查询
 python -m keymon.quota
+
+# 数据层冒烟测试
+python tests/smoke.py
 
 # 带控制台启动 UI，便于看报错
 python app.pyw

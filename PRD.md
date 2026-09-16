@@ -160,7 +160,7 @@ D:\Mings_Project\key-usage-widget\
 
 ## v2-6 里程碑 checklist
 
-- [ ] V2-M1 数据层：读取每个 provider 配置、默认模型
-- [ ] V2-M2 Quota 层：Kimi `/v1/usages` 5h/7day 解析 + Claude `/api/oauth/usage` 预留
-- [ ] V2-M3 UI 重写：半透明 + 4 列表格 + 当前 provider 高亮 + 紧凑尺寸
-- [ ] V2-M4 测试与文档：冒烟测试覆盖新列、README 更新、PRD checklist 完成
+- [x] V2-M1 数据层：读取每个 provider 配置、默认模型
+- [x] V2-M2 Quota 层：Kimi `/v1/usages` 5h/7day 解析 + Claude `/api/oauth/usage` 预留
+- [x] V2-M3 UI 重写：半透明 + 4 列表格 + 当前 provider 高亮 + 紧凑尺寸
+- [x] V2-M4 测试与文档：冒烟测试覆盖新列、README 更新、PRD checklist 完成
