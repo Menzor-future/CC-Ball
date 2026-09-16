@@ -4,6 +4,7 @@ import datetime as dt
 import math
 import os
 import sys
+import threading
 
 from PySide6.QtCore import (
     QAbstractAnimation, QEasingCurve, QParallelAnimationGroup,
@@ -31,6 +32,9 @@ from .quota import QuotaCache, fetch_all
 
 # 诊断日志路径
 _UI_LOG_PATH = os.path.join(os.path.dirname(USER_CONFIG_PATH), "ui.log")
+
+# 变形几何调试：置 1 时记录每次 resize 的真实尺寸，并在启动后自动循环展开/收起
+_DBG_MORPH = bool(os.environ.get("KEYMON_DBG_MORPH"))
 
 
 def _ui_log(msg):
@@ -323,6 +327,9 @@ class TableWidget(QFrame):
 class MainWindow(QMainWindow):
     """主窗口：根据模式显示圆球或表格。"""
 
+    # 异步刷新完成信号：worker 线程 emit，主线程 queued 接收（providers, results, error）
+    _refresh_done = Signal(object, object, object)
+
     def __init__(self):
         super().__init__()
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
@@ -333,6 +340,8 @@ class MainWindow(QMainWindow):
         self.error = None
         self.current_provider = None
         self.cache = QuotaCache(ttl_s=60)
+        self._refreshing = False   # 刷新重入守卫（worker 线程在飞时跳过新刷新）
+        self._table_ready = False  # 首次数据到达后预热表格（替代启动时同步预热）
         self._mode = "orb"
         self._morph = 0.0
         self._fade = 1.0          # 圆球元素（数字/底环）可见度
@@ -396,26 +405,28 @@ class MainWindow(QMainWindow):
         self._timer.timeout.connect(self.refresh)
         self._timer.start(REFRESH_INTERVAL_S * 1000)
 
+        self._refresh_done.connect(self._on_refresh_done)
+
         self._restore_state()
         self.resize(ORB_SIZE, ORB_SIZE)
-        self.refresh()
-        self._prewarm_table()
+        self.refresh()  # 异步：首次数据到达后在 _on_refresh_done 里预热表格
 
     def _prewarm_table(self):
-        """启动时预热表格：构建所有行 widget 并创建 native 窗口，
-        把 QLabel 创建、样式解析、字体加载、HWND 创建的开销全部消化在启动阶段，
-        避免首次点击展开时卡顿。"""
-        try:
-            self._table_w, self._table_h = self._calc_table_size()
-            self.table.resize(self._table_w, self._table_h)
-            self.table.render(self.providers, self.results, self.error)
-            # 强制创建 native window（show 一次再 hide）
-            self.table.show()
-            self.table.hide()
-            self.table_fx.setOpacity(0.0)
-            _ui_log("table prewarmed")
-        except Exception as e:
-            _ui_log(f"prewarm failed: {e}")
+        """首次数据到达后预热：构建所有行 widget 并强制创建 native 窗口，
+        把 QLabel 创建、样式解析、字体加载、HWND 创建的开销消化在首次展开之前。"""
+        self._table_w, self._table_h = self._calc_table_size()
+        self.table.resize(self._table_w, self._table_h)
+        self.table.render(self.providers, self.results, self.error)
+        self.table.show()
+        self.table.hide()
+        self.table_fx.setOpacity(0.0)
+        _ui_log("table prewarmed")
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if _DBG_MORPH:
+            s = event.size()
+            _ui_log(f"[DBG] resize -> {s.width()}x{s.height()} morph={self._morph:.3f} running={self._anim_running()}")
 
     # ---- 变形动画属性（几何） ----
     def _get_morph(self):
@@ -431,6 +442,8 @@ class MainWindow(QMainWindow):
         h = int(ORB_SIZE + (self._table_h - ORB_SIZE) * v)
         # 单次几何变更（避免 resize+move 两次 DWM 合成导致抖动）
         self.setGeometry(old_cx - w // 2, old_cy - h // 2, w, h)
+        if _DBG_MORPH:
+            _ui_log(f"[DBG] morph req={w}x{h} v={v:.4f} table={self._table_w}x{self._table_h} actual={self.width()}x{self.height()}")
         # 表格随变形过半出现（内容由 fade 控制可见度）
         if v > 0.4 and not self.table.isVisible():
             self.table.show()
@@ -565,19 +578,42 @@ class MainWindow(QMainWindow):
         save_user_config(cfg)
 
     def refresh(self):
-        data = read_providers()
-        providers = data.get("providers", [])
-        error = data.get("error")
-        results = fetch_all(providers, cache=self.cache) if not error and providers else {}
+        """异步刷新：DB 读取 + 网络查询全部在 worker 线程完成，结果经信号回主线程。
+        主线程永不阻塞——否则网络变慢时会卡住事件循环，把正在进行的变形动画冻住
+        （阿泽上报的"变形期间宽度偶尔被影响"即此因）。"""
+        if self._refreshing:
+            return
+        self._refreshing = True
 
+        def _work():
+            try:
+                data = read_providers()
+                providers = data.get("providers", [])
+                error = data.get("error")
+                results = fetch_all(providers, cache=self.cache) if not error and providers else {}
+                self._refresh_done.emit(providers, results, error)
+            except Exception as e:
+                _ui_log(f"refresh worker failed: {e}")
+                self._refresh_done.emit([], {}, f"刷新失败: {e}")
+
+        threading.Thread(target=_work, daemon=True).start()
+
+    def _on_refresh_done(self, providers, results, error):
+        self._refreshing = False
         self.providers = providers
         self.results = results
         self.error = error
         self.current_provider = next((p for p in providers if p["is_current"]), providers[0] if providers else None)
 
         self._update_orb()
-        if self._mode == "table" and self._morph >= 1.0:
-            self._render_table()
+        try:
+            if not self._table_ready:
+                self._table_ready = True
+                self._prewarm_table()
+            elif self._mode == "table" and self._morph >= 1.0:
+                self._render_table()
+        except Exception as e:
+            _ui_log(f"render after refresh failed: {e}")
 
     def _update_orb(self):
         provider = self.current_provider
@@ -643,7 +679,7 @@ class MainWindow(QMainWindow):
         return seq
 
     def _expand(self):
-        if self._anim_running():
+        if self._anim_running() or self._morph >= 1.0:
             return
         self._mode = "table"
         self._table_w, self._table_h = self._calc_table_size()
@@ -665,7 +701,7 @@ class MainWindow(QMainWindow):
         self._build_seq(collapse=False).start()
 
     def _collapse(self):
-        if self._anim_running():
+        if self._anim_running() or self._morph <= 0.0:
             return
         self._mode = "orb"
         # 阶段1：表格文字渐隐 ∥ 方形收缩回圆球（背景 dip 同展开）
@@ -707,6 +743,25 @@ def main():
         window = MainWindow()
         window.show()
         _ui_log(f"window shown: visible={window.isVisible()}, pos=({window.x()},{window.y()}), size={window.size()}")
+
+        if _DBG_MORPH:
+            _ui_log(f"[DBG] devicePixelRatioF={window.devicePixelRatioF()} screenDPI={window.screen().logicalDotsPerInch()}")
+            # 自动循环展开/收起；每周期中途注入 refresh()（模拟60s自动刷新撞上变形）
+            # 和微小 move()（模拟变形期间鼠标拖动），配合 resizeEvent 日志定位几何抖动
+            def _cycle(n=0):
+                if n >= 30:
+                    _ui_log("[DBG] self-test done")
+                    app.quit()
+                    return
+                (window._collapse if window._mode == "table" else window._expand)()
+                phase = window._morph_anim.duration()
+                if n % 2 == 0:
+                    QTimer.singleShot(phase // 2, window.refresh)          # 变形中段刷新
+                if n % 3 == 0:
+                    QTimer.singleShot(phase // 3, lambda: window.move(window.x() + 3, window.y()))  # 微拖动
+                QTimer.singleShot(900, lambda: _cycle(n + 1))
+
+            QTimer.singleShot(2500, lambda: _cycle(0))
 
         code = app.exec()
         _ui_log(f"=== app.exec() returned: {code} ===")
