@@ -147,6 +147,7 @@ D:\Mings_Project\key-usage-widget\
 - 背景透明度：`alpha=0.70`（70% 不透明）
 - 窗口尺寸：约 `420x160` 起，根据行数自适应高度
 - 当前使用的 provider 行用不同背景色高亮
+- 自动刷新：每分钟刷新一次（`REFRESH_INTERVAL_S = 60`）
 - 表头可点击列排序（至少支持按商名排序）
 
 ## v2-5 技术变更点
@@ -154,7 +155,7 @@ D:\Mings_Project\key-usage-widget\
 - `ccdb.py`：新增 `read_providers()` 返回每个 provider 配置（不再按 key 去重）；新增 `get_default_model()`
 - `quota.py`：新增 `query_kimi_usages(token)` 解析 5h/7day；新增 `query_claude_usage(oauth_token)` 作为 Claude Official 预留
 - `ui.py`：重写为表格布局，半透明背景，移除旧卡片代码
-- `config.py`：新增 `WINDOW_ALPHA = 0.70`
+- `config.py`：新增 `WINDOW_ALPHA = 0.70`；`REFRESH_INTERVAL_S` 改为 `60`
 - `README.md` 与 `PRD.md` 同步更新
 
 ## v2-6 里程碑 checklist

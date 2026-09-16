@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""并发查询每个 key 的余额/账号信息。全程不输出密钥。"""
+"""并发查询每个 provider 的用量/余额。全程不输出密钥。"""
 import json
 import threading
 import time
@@ -27,12 +27,49 @@ def _request(url, token):
         url,
         headers={
             "Authorization": f"Bearer {token}",
-            "User-Agent": "key-usage-widget/0.1 (readonly)",
+            "User-Agent": "key-usage-widget/0.2 (readonly)",
             "Accept": "application/json",
         },
     )
     with _opener.open(req, timeout=HTTP_TIMEOUT_S) as r:
         return json.loads(r.read().decode("utf-8", "replace"))
+
+
+def _fmt_error(exc):
+    if isinstance(exc, urllib.error.HTTPError):
+        try:
+            body = exc.read().decode("utf-8", "replace")[:200]
+        except Exception:
+            body = ""
+        return {"error": f"HTTP {exc.code}", "detail": body}
+    return {"error": type(exc).__name__, "detail": str(exc)[:200]}
+
+
+def query_kimi_usages(token):
+    """查询 Kimi 5h/7day 用量，返回剩余百分比与 reset 时间。"""
+    try:
+        start = time.time()
+        data = _request("https://api.kimi.com/coding/v1/usages", token)
+        elapsed = time.time() - start
+        usages = data.get("usages", {})
+        h5 = usages.get("limit_5h", {})
+        d7 = usages.get("limit_7d", {})
+
+        def remaining(ratio):
+            try:
+                return max(0.0, 1.0 - float(ratio))
+            except (TypeError, ValueError):
+                return None
+
+        return {
+            "h5_remaining": remaining(h5.get("used_ratio")),
+            "h5_reset": h5.get("reset_time"),
+            "d7_remaining": remaining(d7.get("used_ratio")),
+            "d7_reset": d7.get("reset_time"),
+            "elapsed_ms": round(elapsed * 1000, 1),
+        }
+    except Exception as exc:
+        return _fmt_error(exc)
 
 
 def query_deepseek_balance(token):
@@ -44,7 +81,6 @@ def query_deepseek_balance(token):
         infos = data.get("balance_infos", [])
         if not infos:
             return {"error": "balance_infos empty", "raw": data}
-        # 只展示 CNY；无 CNY 取第一条
         cny = next((b for b in infos if b.get("currency") == "CNY"), infos[0])
         return {
             "available": bool(data.get("is_available")),
@@ -54,52 +90,32 @@ def query_deepseek_balance(token):
             "topped_up": cny.get("topped_up_balance", "0"),
             "elapsed_ms": round(elapsed * 1000, 1),
         }
-    except urllib.error.HTTPError as exc:
-        try:
-            body = exc.read().decode("utf-8", "replace")[:200]
-        except Exception:
-            body = ""
-        return {"error": f"HTTP {exc.code}", "detail": body}
     except Exception as exc:
-        return {"error": type(exc).__name__, "detail": str(exc)[:200]}
+        return _fmt_error(exc)
 
 
-def query_kimi_account(token):
-    """查询 Kimi 账号信息，返回 dict 或带 error 字段。"""
-    try:
-        start = time.time()
-        data = _request("https://api.kimi.com/coding/v1/me", token)
-        elapsed = time.time() - start
-        return {
-            "nickname": data.get("nickname", "").strip() or None,
-            "level": data.get("user_level"),
-            "level_name": data.get("user_level_name"),
-            "user_id": data.get("user_id"),
-            "status": data.get("status"),
-            "elapsed_ms": round(elapsed * 1000, 1),
-        }
-    except urllib.error.HTTPError as exc:
-        try:
-            body = exc.read().decode("utf-8", "replace")[:200]
-        except Exception:
-            body = ""
-        return {"error": f"HTTP {exc.code}", "detail": body}
-    except Exception as exc:
-        return {"error": type(exc).__name__, "detail": str(exc)[:200]}
+def query_claude_usage(oauth_token):
+    """Claude Official 5h/7day 预留；当前无 OAuth token 时返回 N/A。"""
+    if not oauth_token:
+        return {"error": "no OAuth token"}
+    # 预留：未来实现 /api/oauth/usage 解析
+    return {"error": "not implemented"}
 
 
-def query_provider(key):
-    """根据 key 类型分发到对应查询。"""
-    ptype = key.get("provider_type", "custom")
-    if ptype == "deepseek":
-        return query_deepseek_balance(key["token"])
+def query_provider(provider, oauth_token=None):
+    """根据 provider 类型分发到对应查询。"""
+    ptype = provider.get("provider_type", "custom")
     if ptype == "kimi":
-        return query_kimi_account(key["token"])
+        return query_kimi_usages(provider["token"])
+    if ptype == "deepseek":
+        return query_deepseek_balance(provider["token"])
+    if ptype == "anthropic":
+        return query_claude_usage(oauth_token)
     return {"error": f"unsupported provider type: {ptype}"}
 
 
 class QuotaCache:
-    """线程安全的查询结果缓存。"""
+    """线程安全的查询结果缓存，key 为 provider id。"""
 
     def __init__(self, ttl_s=60):
         self._lock = threading.Lock()
@@ -107,35 +123,32 @@ class QuotaCache:
         self._data = {}
         self._timestamp = {}
 
-    def get(self, token_tail):
+    def get(self, pid):
         with self._lock:
-            ts = self._timestamp.get(token_tail, 0)
+            ts = self._timestamp.get(pid, 0)
             if time.time() - ts < self._ttl:
-                return self._data.get(token_tail)
+                return self._data.get(pid)
             return None
 
-    def set(self, token_tail, value):
+    def set(self, pid, value):
         with self._lock:
-            self._data[token_tail] = value
-            self._timestamp[token_tail] = time.time()
+            self._data[pid] = value
+            self._timestamp[pid] = time.time()
 
 
-def fetch_all(keys, cache=None):
-    """并发查询所有 keys，返回 dict{token_tail: result}。
-
-    若提供 cache，会在返回前写入 cache；调用方可先查缓存减少请求。
-    """
+def fetch_all(providers, cache=None, oauth_token=None):
+    """并发查询所有 providers，返回 dict{id: result}。"""
     results = {}
     lock = threading.Lock()
 
-    def worker(key):
-        res = query_provider(key)
+    def worker(provider):
+        res = query_provider(provider, oauth_token=oauth_token)
         with lock:
-            results[key["token_tail"]] = res
+            results[provider["id"]] = res
             if cache is not None:
-                cache.set(key["token_tail"], res)
+                cache.set(provider["id"], res)
 
-    threads = [threading.Thread(target=worker, args=(k,), daemon=True) for k in keys]
+    threads = [threading.Thread(target=worker, args=(p,), daemon=True) for p in providers]
     for t in threads:
         t.start()
     for t in threads:
@@ -146,13 +159,13 @@ def fetch_all(keys, cache=None):
 
 # ---- 自测入口 ----
 if __name__ == "__main__":
-    from keymon.ccdb import read_keys
+    from keymon.ccdb import read_providers
 
-    keys = read_keys().get("keys", [])
+    providers = read_providers().get("providers", [])
     cache = QuotaCache(ttl_s=300)
-    results = fetch_all(keys, cache=cache)
-    for k in keys:
-        tail = k["token_tail"]
-        print(f"\n{k['name']} ({k['provider_type']}, {tail}):")
-        print(" ", results.get(tail))
+    results = fetch_all(providers, cache=cache)
+    for p in providers:
+        rid = p["id"]
+        print(f"\n{p['name']} ({p['provider_type']}, {p['token_tail']}):")
+        print(" ", results.get(rid))
     print("\ncache keys:", list(cache._data.keys()))
