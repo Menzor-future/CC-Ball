@@ -683,9 +683,11 @@ def _set_window_transparent(hwnd):
         _ui_log(f"SetWindowTransparent: exstyle before=0x{exstyle:x}")
         user32.SetWindowLongW(hwnd, GWL_EXSTYLE, exstyle | WS_EX_LAYERED)
 
-        # color key 0x00030102 -> RGB(0x01, 0x02, 0x03) = #010203
-        result = user32.SetLayeredWindowAttributes(hwnd, 0x00030102, 0, LWA_COLORKEY)
-        _ui_log(f"SetWindowTransparent: SetLayeredWindowAttributes returned {result}")
+        # color key: RGB(1,2,3) = 0x010203 -> COLORREF 0x00030201
+        # COLORREF 格式是 0x00BBGGRR，所以 B=3, G=2, R=1 -> 0x00030201
+        color_key = 0x00030201
+        result = user32.SetLayeredWindowAttributes(hwnd, color_key, 0, LWA_COLORKEY)
+        _ui_log(f"SetWindowTransparent: color_key=0x{color_key:06x} returned {result}")
 
         # 验证样式确实设置成功
         new_exstyle = user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
