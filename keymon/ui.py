@@ -102,6 +102,36 @@ class UsageWidget(tk.Tk):
         self._restore_state()
         self.refresh()
 
+    def _verify_center_pixel(self):
+        """读取窗口中心像素颜色，验证 tkinter 实际绘制的颜色值。"""
+        try:
+            hwnd = self.winfo_id()
+            user32 = ctypes.windll.user32
+            gdi32 = ctypes.windll.gdi32
+
+            user32.GetDC.restype = ctypes.c_void_p
+            user32.GetDC.argtypes = [ctypes.c_void_p]
+            hdc = user32.GetDC(hwnd)
+
+            gdi32.GetPixel.restype = ctypes.c_ulong
+            gdi32.GetPixel.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_int]
+
+            # 窗口中心坐标
+            cx = ORB_SIZE // 2
+            cy = ORB_SIZE // 2
+            pixel = gdi32.GetPixel(hdc, cx, cy)
+
+            user32.ReleaseDC.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+            user32.ReleaseDC(hwnd, hdc)
+
+            # GetPixel 返回 0x00BBGGRR (COLORREF)
+            r = pixel & 0xFF
+            g = (pixel >> 8) & 0xFF
+            b = (pixel >> 16) & 0xFF
+            _ui_log(f"center pixel: raw=0x{pixel:06x} RGB=({r},{g},{b})")
+        except Exception as exc:
+            _ui_log(f"verify pixel EXCEPTION: {type(exc).__name__}: {exc}")
+
     # ---- 视图构建 ----
     def _build_orb_view(self):
         self.orb_frame = tk.Frame(self, bg=TRANSPARENT, width=ORB_SIZE, height=ORB_SIZE)
@@ -620,37 +650,6 @@ def _lerp_color(c1, c2, t):
     g = int(g1 + (g2 - g1) * t)
     b = int(b1 + (b2 - b1) * t)
     return f"#{r:02x}{g:02x}{b:02x}"
-
-
-def _verify_center_pixel(self):
-    """读取窗口中心像素颜色，验证 tkinter 实际绘制的颜色值。"""
-    try:
-        hwnd = self.winfo_id()
-        user32 = ctypes.windll.user32
-        gdi32 = ctypes.windll.gdi32
-
-        user32.GetDC.restype = ctypes.c_void_p
-        user32.GetDC.argtypes = [ctypes.c_void_p]
-        hdc = user32.GetDC(hwnd)
-
-        gdi32.GetPixel.restype = ctypes.c_ulong
-        gdi32.GetPixel.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_int]
-
-        # 窗口中心坐标
-        cx = ORB_SIZE // 2
-        cy = ORB_SIZE // 2
-        pixel = gdi32.GetPixel(hdc, cx, cy)
-
-        user32.ReleaseDC.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
-        user32.ReleaseDC(hwnd, hdc)
-
-        # GetPixel 返回 0x00BBGGRR (COLORREF)
-        r = pixel & 0xFF
-        g = (pixel >> 8) & 0xFF
-        b = (pixel >> 16) & 0xFF
-        _ui_log(f"center pixel: raw=0x{pixel:06x} RGB=({r},{g},{b})")
-    except Exception as exc:
-        _ui_log(f"verify pixel EXCEPTION: {type(exc).__name__}: {exc}")
 
 
 def _set_window_transparent(hwnd):
