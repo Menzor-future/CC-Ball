@@ -29,6 +29,7 @@ USER_CONFIG_PATH = os.path.join(
 
 DEFAULT_USER_CONFIG = {
     "geometry": None,  # 窗口位置尺寸，如 "320x400+100+100"
+    "mode": "orb",     # "orb" 圆球 / "table" 展开列表
 }
 
 

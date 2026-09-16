@@ -159,10 +159,41 @@ D:\Mings_Project\key-usage-widget\
 - `config.py`：`REFRESH_INTERVAL_S` 改为 `60`；`WINDOW_ALPHA` 保留作为 DWM 不可用时 fallback
 - `README.md` 与 `PRD.md` 同步更新
 
-## v2-6 里程碑 checklist
+# v3 改造：圆球仪表盘 + 展开动画
 
-- [x] V2-M1 数据层：读取每个 provider 配置、默认模型
-- [x] V2-M2 Quota 层：Kimi `/v1/usages` 5h/7day 解析 + Claude `/api/oauth/usage` 预留
-- [x] V2-M3 UI 重写：半透明 + 4 列表格 + 当前 provider 高亮 + 紧凑尺寸
-- [x] V2-M4 测试与文档：冒烟测试覆盖新列、README 更新、PRD checklist 完成
-- [x] V2-M6 视觉优化：Acrylic/Mica 磨砂玻璃背景（文字不透明）；表头「商名」改「账号名」；7day 列显示不下时简化倒计时格式/加宽
+## v3-1 目标
+
+响应阿泽需求：默认只显示一个圆形仪表盘，展示当前选中配置的 5h 已用量百分比；点击圆球后通过动画展开完整方形列表；去掉标题栏，消除窗口空白。
+
+## v3-2 界面与交互
+
+- **默认状态**：120×120 小圆球窗口。
+  - 灰色底环 + 彩色进度弧线（已用量 <50% 绿、50%-80% 橙、≥80% 红）。
+  - 中心显示已用量整数百分比，如 `60%`。
+  - DeepSeek/Claude 等无 5h 数据时显示 `N/A`。
+- **点击圆球**：
+  1. 圆球文字渐隐。
+  2. 透黑圆形从中心扩张并填满方形窗口。
+  3. 方形列表文字渐显。
+- **展开状态**：去掉标题栏的紧凑表格，底部 footer 左侧 ⟳ 刷新、右侧 ✕ 收起。
+- **点击 ✕**：直接切回圆球。
+
+## v3-3 技术变更点
+
+- `ui.py`：
+  - 新增 `_OrbView`（Canvas 圆球）与 `_TableView`（表格）。
+  - 新增 `anim_canvas` 作为过渡动画层，使用 Canvas `create_oval` 实现圆形扩张。
+  - 新增 `_lerp_color` 颜色插值，实现文字渐隐/渐显。
+  - `UsageWidget` 维护 `_mode`（`orb` / `table`），切换时保留窗口中心位置。
+  - 移除顶部标题栏，将 ⟳ / ✕ 移入表格 footer。
+  - 精确计算表格宽高，消除右侧/下方空白。
+- `config.py`：
+  - `DEFAULT_USER_CONFIG` 增加 `"mode": "orb"`，记忆上次展开/收起状态。
+- `README.md` 与 `PRD.md` 同步更新。
+
+## v3-4 里程碑 checklist
+
+- [x] V3-M1 圆球仪表盘：Canvas 绘制圆环 + 百分比，显示当前配置 5h 已用量，低量变色。
+- [x] V3-M2 展开/收起动画：点击圆球文字渐隐、圆形扩张为透黑方形、列表文字渐显；✕ 收起回圆球。
+- [x] V3-M3 去标题栏 + 空白优化：去掉“Key 用量面板”标题，精确几何消除右侧/下方空白。
+- [x] V3-M4 文档与验收：PRD/README 更新，阿泽验收。
