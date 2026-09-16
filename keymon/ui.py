@@ -187,7 +187,9 @@ class UsageWidget(tk.Tk):
     def _apply_glass_background(self):
         """Windows 11 用 DWM 设置 Acrylic/Mica；失败则退回 tkinter alpha。"""
         hwnd = self.winfo_id()
-        _set_window_transparent(hwnd)
+        _ui_log(f"_apply_glass_background: hwnd={hwnd}")
+        ok = _set_window_transparent(hwnd)
+        _ui_log(f"_apply_glass_background: transparent={ok}")
         if not _set_window_acrylic_mica(hwnd):
             self.attributes("-alpha", WINDOW_ALPHA)
 
@@ -628,12 +630,25 @@ def _set_window_transparent(hwnd):
         WS_EX_LAYERED = 0x00080000
         LWA_COLORKEY = 0x00000001
         user32 = ctypes.windll.user32
+
+        # 修正 SetWindowLongW 返回值/参数类型，避免 64 位截断
+        user32.SetWindowLongW.restype = ctypes.c_long
+        user32.SetWindowLongW.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_long]
+
         exstyle = user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
+        _ui_log(f"SetWindowTransparent: exstyle before=0x{exstyle:x}")
         user32.SetWindowLongW(hwnd, GWL_EXSTYLE, exstyle | WS_EX_LAYERED)
+
         # color key 0x00030102 -> RGB(0x01, 0x02, 0x03) = #010203
-        user32.SetLayeredWindowAttributes(hwnd, 0x00030102, 0, LWA_COLORKEY)
-        return True
-    except Exception:
+        result = user32.SetLayeredWindowAttributes(hwnd, 0x00030102, 0, LWA_COLORKEY)
+        _ui_log(f"SetWindowTransparent: SetLayeredWindowAttributes returned {result}")
+
+        # 验证样式确实设置成功
+        new_exstyle = user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
+        _ui_log(f"SetWindowTransparent: exstyle after=0x{new_exstyle:x}")
+        return bool(result) and (new_exstyle & WS_EX_LAYERED)
+    except Exception as exc:
+        _ui_log(f"SetWindowTransparent EXCEPTION: {type(exc).__name__}: {exc}")
         return False
 
 
