@@ -5,11 +5,11 @@
 ## 功能
 
 - 自动读取 `~/.cc-switch/cc-switch.db` 中的 Claude providers，**每个 provider 配置一行**
-- 半透明背景（70% 不透明）、紧凑表格布局
-- **Kimi For Coding**：显示 5 小时 / 7 天剩余用量百分比
+- 半透明背景（90% 不透明）、紧凑表格布局
+- **Kimi For Coding**：显示 5 小时 / 7 天剩余用量百分比，括号内显示重置倒计时（如 `76%(2h15m)`）
 - **DeepSeek**：显示人民币余额
 - **Claude Official**：预留 5h/7day 显示，需要 Claude Code 登录后的 OAuth token（本机未登录时显示 `N/A`）
-- 当前使用的 provider 行高亮
+- 当前使用的 provider 行文字加粗 + 背景高亮
 - 每分钟自动刷新；右上角 ⟳ 可手动刷新
 - 拖动窗口后自动记忆位置
 
@@ -34,7 +34,7 @@ pythonw app.pyw
 | `PROXY_URL` | HTTP 代理地址，留空则直连 | `http://127.0.0.1:7890` |
 | `REFRESH_INTERVAL_S` | 自动刷新间隔（秒） | `60` |
 | `LOW_BALANCE_CNY` | DeepSeek 余额低于该值变橙色提醒 | `5.0` |
-| `WINDOW_ALPHA` | 背景不透明度（0.0–1.0） | `0.70` |
+| `WINDOW_ALPHA` | 背景不透明度（0.0–1.0） | `0.90` |
 
 用户数据（窗口位置）保存在 `%LOCALAPPDATA%\key-usage-widget\config.json`。
 
