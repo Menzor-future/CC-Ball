@@ -51,6 +51,10 @@ HEADER_BG = "#25252c"
 GRID = "#35353d"
 TRANSPARENT = "#010203"
 
+# 圆球专用配色
+ORB_FILL = "#1a1a20"    # 圆球内部填充（半透黑）
+ORB_TRACK = "#2a2a35"   # 进度环背景轨道（深灰透黑）
+
 COLS = ["账号名", "模型", "5h", "7day"]
 COL_WIDTHS = [110, 120, 105, 105]
 
@@ -160,9 +164,15 @@ class UsageWidget(tk.Tk):
         x0, y0 = cx - r, cy - r
         x1, y1 = cx + r, cy + r
 
-        self.orb_bg_oval = self.orb_canvas.create_oval(
-            x0, y0, x1, y1, outline=GRID, width=ORB_STROKE,
+        # 内部半透明黑填充（比背景稍亮，形成圆球本体）
+        self.orb_fill = self.orb_canvas.create_oval(
+            x0, y0, x1, y1, fill=ORB_FILL, outline="",
         )
+        # 背景进度环（深灰透黑）
+        self.orb_bg_oval = self.orb_canvas.create_oval(
+            x0, y0, x1, y1, outline=ORB_TRACK, width=ORB_STROKE,
+        )
+        # 彩色进度弧（实心、不透明）
         self.orb_arc = self.orb_canvas.create_arc(
             x0, y0, x1, y1, start=90, extent=0,
             outline=GREEN, width=ORB_STROKE, style="arc",
