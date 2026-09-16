@@ -49,6 +49,7 @@ ORANGE = "#d29922"
 RED = "#f85149"
 HEADER_BG = "#25252c"
 GRID = "#35353d"
+TRANSPARENT = "#010203"
 
 COLS = ["账号名", "模型", "5h", "7day"]
 COL_WIDTHS = [110, 120, 105, 105]
@@ -61,7 +62,7 @@ ORB_STROKE = 8
 class UsageWidget(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.configure(bg=BG)
+        self.configure(bg=TRANSPARENT)
         self.overrideredirect(True)
         self.attributes("-topmost", True)
         self.resizable(False, False)
@@ -103,13 +104,13 @@ class UsageWidget(tk.Tk):
 
     # ---- 视图构建 ----
     def _build_orb_view(self):
-        self.orb_frame = tk.Frame(self, bg=BG, width=ORB_SIZE, height=ORB_SIZE)
+        self.orb_frame = tk.Frame(self, bg=TRANSPARENT, width=ORB_SIZE, height=ORB_SIZE)
         self.orb_frame.grid(row=0, column=0, sticky="nsew")
         self.orb_frame.grid_propagate(False)
 
         self.orb_canvas = tk.Canvas(
             self.orb_frame, width=ORB_SIZE, height=ORB_SIZE,
-            bg=BG, highlightthickness=0,
+            bg=TRANSPARENT, highlightthickness=0,
         )
         self.orb_canvas.pack(fill="both", expand=True)
 
@@ -134,13 +135,13 @@ class UsageWidget(tk.Tk):
 
     def _build_anim_canvas(self):
         self.anim_canvas = tk.Canvas(
-            self, bg=BG, highlightthickness=0,
+            self, bg=TRANSPARENT, highlightthickness=0,
         )
         self.anim_canvas.grid(row=0, column=0, sticky="nsew")
         self.anim_canvas.grid_remove()
 
     def _build_table_view(self):
-        self.table_frame = tk.Frame(self, bg=BG)
+        self.table_frame = tk.Frame(self, bg=TRANSPARENT)
         self.table_frame.grid(row=0, column=0, sticky="nsew")
         self.table_frame.grid_remove()  # 默认隐藏
 
@@ -210,6 +211,7 @@ class UsageWidget(tk.Tk):
         if self._mode == "orb":
             return
         self._mode = "orb"
+        self.configure(bg=TRANSPARENT)
         self.table_frame.grid_remove()
         self.orb_frame.grid()
         self.geometry(self._centered_geometry(ORB_SIZE, ORB_SIZE))
@@ -226,6 +228,7 @@ class UsageWidget(tk.Tk):
         # 准备表格（文字先隐藏），但不调整窗口尺寸
         self._render_table(self.providers, self.results, self.error, finalize_geometry=False)
         self._set_table_text_color(BG)
+        self.configure(bg=BG)
         self.table_frame.grid()
         self.orb_frame.grid_remove()
 
@@ -236,7 +239,7 @@ class UsageWidget(tk.Tk):
         end_w, end_h = self._compute_table_geometry(len(self.providers) if self.providers else 1)
         end_size = (end_w, end_h)
 
-        self.anim_canvas.config(width=ORB_SIZE, height=ORB_SIZE)
+        self.anim_canvas.config(width=ORB_SIZE, height=ORB_SIZE, bg=TRANSPARENT)
         self.anim_canvas.grid()
 
         self._animate_expand(0, 12, start_size, end_size)
@@ -246,7 +249,7 @@ class UsageWidget(tk.Tk):
         cur_w = int(start_size[0] + (end_size[0] - start_size[0]) * progress)
         cur_h = int(start_size[1] + (end_size[1] - start_size[1]) * progress)
         self.geometry(self._centered_geometry(cur_w, cur_h))
-        self.anim_canvas.config(width=cur_w, height=cur_h)
+        self.anim_canvas.config(width=cur_w, height=cur_h, bg=TRANSPARENT)
 
         cx, cy = cur_w // 2, cur_h // 2
         self.anim_canvas.delete("all")
