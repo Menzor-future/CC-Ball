@@ -366,7 +366,7 @@ class UsageWidget(tk.Tk):
 
     def _restore_state(self):
         cfg = load_user_config()
-        self._mode = cfg.get("mode", "orb")
+        saved_mode = cfg.get("mode", "orb")
         geo = cfg.get("geometry")
         x = y = 80
         if geo:
@@ -377,11 +377,12 @@ class UsageWidget(tk.Tk):
                     x, y = map(int, parts[1].split("+", 1))
             except Exception:
                 pass
-        if self._mode == "table":
-            width, height = self._compute_table_geometry(len(self.providers) if self.providers else 1)
-        else:
-            width, height = ORB_SIZE, ORB_SIZE
+
+        # 启动时强制使用 orb 模式，避免上次 table 模式的尺寸导致黑块
+        self._mode = "orb"
+        width, height = ORB_SIZE, ORB_SIZE
         self.geometry(f"{width}x{height}+{x}+{y}")
+        _ui_log(f"_restore_state: saved_mode={saved_mode}, force orb, pos={x},{y}")
 
     def _set_default_geometry(self):
         if self._mode == "table":
