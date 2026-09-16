@@ -103,7 +103,7 @@ class UsageWidget(tk.Tk):
         self.refresh()
 
     def _verify_center_pixel(self):
-        """读取窗口中心像素颜色，验证 tkinter 实际绘制的颜色值。"""
+        """读取窗口多个位置像素颜色，定位黑块来源。"""
         try:
             hwnd = self.winfo_id()
             user32 = ctypes.windll.user32
@@ -116,19 +116,29 @@ class UsageWidget(tk.Tk):
             gdi32.GetPixel.restype = ctypes.c_ulong
             gdi32.GetPixel.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_int]
 
-            # 窗口中心坐标
-            cx = ORB_SIZE // 2
-            cy = ORB_SIZE // 2
-            pixel = gdi32.GetPixel(hdc, cx, cy)
+            # 读取多个位置：中心、左上、右上、左下、右下
+            points = [
+                ("center", ORB_SIZE // 2, ORB_SIZE // 2),
+                ("topleft", 5, 5),
+                ("topright", ORB_SIZE - 5, 5),
+                ("bottomleft", 5, ORB_SIZE - 5),
+                ("bottomright", ORB_SIZE - 5, ORB_SIZE - 5),
+                ("midright", ORB_SIZE - 5, ORB_SIZE // 2),
+                ("midbottom", ORB_SIZE // 2, ORB_SIZE - 5),
+            ]
+            for name, px, py in points:
+                pixel = gdi32.GetPixel(hdc, px, py)
+                r = pixel & 0xFF
+                g = (pixel >> 8) & 0xFF
+                b = (pixel >> 16) & 0xFF
+                _ui_log(f"pixel[{name}]: raw=0x{pixel:06x} RGB=({r},{g},{b})")
 
             user32.ReleaseDC.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
             user32.ReleaseDC(hwnd, hdc)
 
-            # GetPixel 返回 0x00BBGGRR (COLORREF)
-            r = pixel & 0xFF
-            g = (pixel >> 8) & 0xFF
-            b = (pixel >> 16) & 0xFF
-            _ui_log(f"center pixel: raw=0x{pixel:06x} RGB=({r},{g},{b})")
+            # 记录窗口几何
+            geo = self.geometry()
+            _ui_log(f"window geometry: {geo}")
         except Exception as exc:
             _ui_log(f"verify pixel EXCEPTION: {type(exc).__name__}: {exc}")
 
