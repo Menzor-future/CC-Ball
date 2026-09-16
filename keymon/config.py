@@ -15,8 +15,11 @@ PROXY_URL = "http://127.0.0.1:7890"  # Clash；留空字符串则直连
 HTTP_TIMEOUT_S = 10
 
 # ---- 行为 ----
-REFRESH_INTERVAL_S = 300   # 自动刷新间隔（秒）
+REFRESH_INTERVAL_S = 60    # 自动刷新间隔（秒）
 LOW_BALANCE_CNY = 5.0      # DeepSeek 余额低于该值卡片变橙提醒
+
+# ---- UI ----
+WINDOW_ALPHA = 0.70        # 背景不透明度（0.0-1.0）
 
 # ---- 用户配置（窗口位置等，可写）----
 USER_CONFIG_PATH = os.path.join(

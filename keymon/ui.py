@@ -1,23 +1,33 @@
 # -*- coding: utf-8 -*-
-"""悬浮窗 UI：深色卡片、可拖动、置顶、手动刷新。"""
+"""悬浮窗 UI：半透明表格，展示 商名 | 模型 | 5h | 7day。"""
 import threading
 import tkinter as tk
 from tkinter import font as tkfont
 
-from .config import LOW_BALANCE_CNY, REFRESH_INTERVAL_S, load_user_config, save_user_config
-from .ccdb import platform_usage, read_keys
+from .config import (
+    LOW_BALANCE_CNY,
+    REFRESH_INTERVAL_S,
+    WINDOW_ALPHA,
+    load_user_config,
+    save_user_config,
+)
+from .ccdb import read_providers
 from .quota import QuotaCache, fetch_all
 
 # 配色（深色玻璃风）
-BG = "#1e1e24"
-CARD_BG = "#2a2a32"
-CARD_CURRENT = "#3a2f22"
-TEXT = "#e8e8ec"
-TEXT_DIM = "#9a9aa3"
+BG = "#1a1a20"
+BG_CURRENT = "#2a2530"
+TEXT = "#e6e6ea"
+TEXT_DIM = "#8b8b95"
 ACCENT = "#58a6ff"
 GREEN = "#3fb950"
 ORANGE = "#d29922"
 RED = "#f85149"
+HEADER_BG = "#25252c"
+GRID = "#35353d"
+
+COLS = ["商名", "模型", "5h", "7day"]
+COL_WIDTHS = [120, 130, 60, 60]
 
 
 class UsageWidget(tk.Tk):
@@ -27,22 +37,22 @@ class UsageWidget(tk.Tk):
         self.configure(bg=BG)
         self.overrideredirect(True)
         self.attributes("-topmost", True)
-        self.attributes("-alpha", 0.97)
+        self.attributes("-alpha", WINDOW_ALPHA)
         self.resizable(False, False)
 
-        # 拖动状态
+        # 字体
+        self.font_header = tkfont.Font(family="Microsoft YaHei UI", size=9, weight="bold")
+        self.font_body = tkfont.Font(family="Microsoft YaHei UI", size=9)
+        self.font_small = tkfont.Font(family="Microsoft YaHei UI", size=8)
+
+        # 拖动
         self._drag_x = self._drag_y = 0
         self.bind("<ButtonPress-1>", self._start_drag)
         self.bind("<B1-Motion>", self._on_drag)
         self.bind("<ButtonRelease-1>", self._stop_drag)
 
-        # 字体
-        self.font_title = tkfont.Font(family="Microsoft YaHei UI", size=10, weight="bold")
-        self.font_body = tkfont.Font(family="Microsoft YaHei UI", size=9)
-        self.font_small = tkfont.Font(family="Microsoft YaHei UI", size=8)
-
         self._build_header()
-        self._build_cards_container()
+        self._build_table()
         self._build_footer()
 
         self.cache = QuotaCache(ttl_s=60)
@@ -66,14 +76,15 @@ class UsageWidget(tk.Tk):
 
     # ---- 布局 ----
     def _build_header(self):
-        header = tk.Frame(self, bg=BG, padx=10, pady=8)
-        header.pack(fill="x")
+        header = tk.Frame(self, bg=BG, padx=8, pady=6)
+        header.grid(row=0, column=0, sticky="ew")
         tk.Label(
             header, text="🔑 Key 用量面板", fg=TEXT, bg=BG,
-            font=self.font_title,
+            font=self.font_header,
         ).pack(side="left")
+
         self.refresh_btn = tk.Label(
-            header, text="⟳", fg=ACCENT, bg=BG, font=self.font_title, cursor="hand2",
+            header, text="⟳", fg=ACCENT, bg=BG, font=self.font_header, cursor="hand2",
         )
         self.refresh_btn.pack(side="right", padx=2)
         self.refresh_btn.bind("<Button-1>", lambda _e: self.refresh())
@@ -82,22 +93,27 @@ class UsageWidget(tk.Tk):
         close.pack(side="right", padx=8)
         close.bind("<Button-1>", lambda _e: self.destroy())
 
-    def _build_cards_container(self):
-        self.cards_frame = tk.Frame(self, bg=BG, padx=10)
-        self.cards_frame.pack(fill="both", expand=True, pady=6)
-        self._card_widgets = []
+    def _build_table(self):
+        self.table = tk.Frame(self, bg=GRID, padx=1, pady=1)
+        self.table.grid(row=1, column=0, sticky="nsew", padx=8, pady=(0, 6))
+
+        # 表头
+        for col, (label, width) in enumerate(zip(COLS, COL_WIDTHS)):
+            cell = tk.Frame(self.table, bg=HEADER_BG, width=width, height=26)
+            cell.grid(row=0, column=col, sticky="nsew", padx=1, pady=1)
+            cell.grid_propagate(False)
+            tk.Label(
+                cell, text=label, fg=TEXT_DIM, bg=HEADER_BG,
+                font=self.font_small, anchor="w",
+            ).pack(side="left", padx=6)
+
+        self._rows = []
 
     def _build_footer(self):
-        self.footer = tk.Frame(self, bg=BG, padx=10, pady=6)
-        self.footer.pack(fill="x")
-        self.usage_label = tk.Label(
-            self.footer, text="加载中…", fg=TEXT_DIM, bg=BG, font=self.font_small,
-            justify="left", anchor="w",
-        )
-        self.usage_label.pack(fill="x")
+        self.footer = tk.Frame(self, bg=BG, padx=8, pady=4)
+        self.footer.grid(row=2, column=0, sticky="ew")
         self.updated_label = tk.Label(
-            self.footer, text="", fg=TEXT_DIM, bg=BG, font=self.font_small,
-            anchor="e",
+            self.footer, text="", fg=TEXT_DIM, bg=BG, font=self.font_small, anchor="e",
         )
         self.updated_label.pack(fill="x")
 
@@ -111,7 +127,12 @@ class UsageWidget(tk.Tk):
                 return
             except tk.TclError:
                 pass
-        self.geometry("320x380+80+80")
+        self._set_default_geometry()
+
+    def _set_default_geometry(self):
+        # 宽度 = 列宽和 + 边距; 高度由行数决定，先给个最小值
+        width = sum(COL_WIDTHS) + 16 + 2  # 16 pad, 1px grid borders approx
+        self.geometry(f"{width}x160+80+80")
 
     def _save_geometry(self):
         cfg = load_user_config()
@@ -127,13 +148,11 @@ class UsageWidget(tk.Tk):
 
         def job():
             try:
-                keys_info = read_keys()
-                keys = keys_info.get("keys", [])
-                error = keys_info.get("error")
-                results = fetch_all(keys, cache=self.cache) if not error and keys else {}
-                usage_today = platform_usage(24)
-                usage_week = platform_usage(168)
-                self.after(0, self._render, keys, results, error, usage_today, usage_week)
+                data = read_providers()
+                providers = data.get("providers", [])
+                error = data.get("error")
+                results = fetch_all(providers, cache=self.cache) if not error and providers else {}
+                self.after(0, self._render, providers, results, error)
             finally:
                 self.after(0, lambda: self.refresh_btn.config(text="⟳", fg=ACCENT))
                 self._refresh_in_progress = False
@@ -147,122 +166,116 @@ class UsageWidget(tk.Tk):
         self._auto_refresh_id = self.after(REFRESH_INTERVAL_S * 1000, self.refresh)
 
     # ---- 渲染 ----
-    def _render(self, keys, results, error, usage_today, usage_week):
-        # 清旧卡片
-        for w in self._card_widgets:
-            w.destroy()
-        self._card_widgets.clear()
+    def _render(self, providers, results, error):
+        # 清旧行
+        for row_cells in self._rows:
+            for cell in row_cells:
+                cell.destroy()
+        self._rows.clear()
 
         if error:
-            self._add_card("读取 cc-switch 失败", error, RED)
+            self._render_error(error)
             return
-        if not keys:
-            self._add_card("未找到 key", "请检查 cc-switch 的 Claude providers", TEXT_DIM)
+        if not providers:
+            self._render_error("未找到 provider 配置")
             return
 
-        for key in keys:
-            self._render_key_card(key, results.get(key["token_tail"], {}))
+        for row_idx, provider in enumerate(providers, start=1):
+            self._render_provider_row(row_idx, provider, results.get(provider["id"], {}))
 
-        self._render_footer(usage_today, usage_week)
+        # 自适应高度
+        height = 60 + len(providers) * 28
+        width = sum(COL_WIDTHS) + 18
+        geo = self.geometry()
+        pos = geo.split("+", 1)[1] if "+" in geo else "80+80"
+        self.geometry(f"{width}x{height}+{pos}")
 
-    def _render_key_card(self, key, res):
-        is_current = key["is_current"]
-        card = tk.Frame(
-            self.cards_frame, bg=CARD_CURRENT if is_current else CARD_BG,
-            padx=10, pady=8,
-        )
-        card.pack(fill="x", pady=8)
-        self._card_widgets.append(card)
-
-        # 标题行
-        title_row = tk.Frame(card, bg=card["bg"])
-        title_row.pack(fill="x")
-        name = key["name"]
-        if len(key["config_names"]) > 1:
-            name = f"{name}（{len(key['config_names'])} 个配置共用）"
-        tk.Label(
-            title_row, text=name, fg=TEXT, bg=card["bg"],
-            font=self.font_body,
-        ).pack(side="left")
-        if is_current:
-            tk.Label(
-                title_row, text="当前使用", fg=BG, bg=ACCENT,
-                font=self.font_small, padx=4, pady=1,
-            ).pack(side="right")
-
-        # 内容行
-        ptype = key["provider_type"]
-        if "error" in res:
-            status_text = f"查询失败：{res['error']}"
-            status_color = RED
-            detail = res.get("detail", "")
-            if detail:
-                status_text += f"\n{detail}"
-        elif ptype == "deepseek":
-            try:
-                bal = float(res.get("balance", "0"))
-            except ValueError:
-                bal = 0.0
-            status_text = f"余额：¥{res.get('balance', '--')} {res.get('currency', '')}"
-            if bal < LOW_BALANCE_CNY:
-                status_color = ORANGE
-            else:
-                status_color = GREEN
-        elif ptype == "kimi":
-            nickname = res.get("nickname") or "未知昵称"
-            level = res.get("level_name") or f"Lv.{res.get('level', '?')}"
-            uid_tail = (res.get("user_id") or "-")[-6:]
-            status_text = f"{nickname} · {level}\nID 尾号 {uid_tail}"
-            status_color = TEXT
-        else:
-            status_text = "暂不支持查询"
-            status_color = TEXT_DIM
-
-        lbl = tk.Label(
-            card, text=status_text, fg=status_color, bg=card["bg"],
-            font=self.font_small, justify="left", anchor="w",
-        )
-        lbl.pack(fill="x", pady=4)
-
-    def _render_footer(self, today, week):
-        err = today.get("error") or week.get("error")
-        if err:
-            self.usage_label.config(text=f"用量统计失败：{err}", fg=RED)
-        else:
-            t = today.get("total_tokens", 0)
-            w = week.get("total_tokens", 0)
-            by_t = today.get("by_platform", {})
-            by_w = week.get("by_platform", {})
-            text = (
-                f"今日 {self._fmt_tokens(t)}"
-                f"｜本周 {self._fmt_tokens(w)}\n"
-                f"按平台合计：{self._fmt_by(by_t)} / {self._fmt_by(by_w)}\n"
-                f"无法按 key 拆分"
-            )
-            self.usage_label.config(text=text, fg=TEXT_DIM)
         import datetime
         self.updated_label.config(text=f"更新于 {datetime.datetime.now().strftime('%H:%M:%S')}")
 
-    @staticmethod
-    def _fmt_tokens(n):
-        if n >= 1_000_000:
-            return f"{n / 1_000_000:.2f}M"
-        if n >= 1_000:
-            return f"{n / 1_000:.1f}K"
-        return str(n)
+    def _render_provider_row(self, row_idx, provider, res):
+        is_current = provider["is_current"]
+        bg = BG_CURRENT if is_current else BG
+        cells = []
+
+        # 商名
+        cells.append(self._cell(row_idx, 0, provider["name"], bg, anchor="w"))
+        # 模型
+        cells.append(self._cell(row_idx, 1, provider["model"], bg, anchor="w", fg=TEXT_DIM))
+
+        ptype = provider["provider_type"]
+        if "error" in res:
+            cells.append(self._cell(row_idx, 2, res["error"], bg, fg=RED, anchor="e"))
+            cells.append(self._cell(row_idx, 3, "", bg))
+        elif ptype == "deepseek":
+            try:
+                bal = float(res.get("balance", "0"))
+                color = ORANGE if bal < LOW_BALANCE_CNY else GREEN
+            except ValueError:
+                bal = 0.0
+                color = TEXT
+            text = f"余额 ¥{res.get('balance', '--')}"
+            # 跨 5h/7day 两列
+            cell = tk.Frame(self.table, bg=bg, width=COL_WIDTHS[2] + COL_WIDTHS[3] + 2, height=26)
+            cell.grid(row=row_idx, column=2, columnspan=2, sticky="nsew", padx=1, pady=1)
+            cell.grid_propagate(False)
+            tk.Label(
+                cell, text=text, fg=color, bg=bg,
+                font=self.font_body, anchor="e",
+            ).pack(side="right", padx=6)
+            cells.append(cell)
+            # 占位，保持列表长度一致
+            cells.append(None)
+        else:
+            h5 = res.get("h5_remaining")
+            d7 = res.get("d7_remaining")
+            cells.append(self._cell(
+                row_idx, 2,
+                self._fmt_pct(h5), bg,
+                fg=self._pct_color(h5), anchor="e",
+            ))
+            cells.append(self._cell(
+                row_idx, 3,
+                self._fmt_pct(d7), bg,
+                fg=self._pct_color(d7), anchor="e",
+            ))
+
+        self._rows.append(cells)
+
+    def _cell(self, row, col, text, bg, fg=TEXT, anchor="w"):
+        cell = tk.Frame(self.table, bg=bg, width=COL_WIDTHS[col], height=26)
+        cell.grid(row=row, column=col, sticky="nsew", padx=1, pady=1)
+        cell.grid_propagate(False)
+        tk.Label(
+            cell, text=text, fg=fg, bg=bg,
+            font=self.font_body, anchor=anchor,
+        ).pack(side="left" if anchor == "w" else "right", padx=6)
+        return cell
+
+    def _render_error(self, message):
+        cell = tk.Frame(self.table, bg=BG, width=sum(COL_WIDTHS) + 6, height=60)
+        cell.grid(row=1, column=0, columnspan=4, sticky="nsew", padx=1, pady=1)
+        tk.Label(
+            cell, text=message, fg=RED, bg=BG,
+            font=self.font_body, wraplength=320,
+        ).pack(expand=True)
+        self._rows.append([cell])
 
     @staticmethod
-    def _fmt_by(by):
-        if not by:
-            return "—"
-        return ", ".join(f"{k} {UsageWidget._fmt_tokens(v)}" for k, v in by.items())
+    def _fmt_pct(value):
+        if value is None:
+            return "N/A"
+        return f"{max(0.0, min(1.0, value)) * 100:.0f}%"
 
-    def _add_card(self, title, body, color):
-        card = tk.Frame(self.cards_frame, bg=CARD_BG, padx=10, pady=8)
-        card.pack(fill="x", pady=8)
-        self._card_widgets.append(card)
-        tk.Label(card, text=title, fg=color, bg=CARD_BG, font=self.font_body).pack(anchor="w")
-        tk.Label(card, text=body, fg=TEXT_DIM, bg=CARD_BG, font=self.font_small, justify="left").pack(anchor="w", pady=4)
+    @staticmethod
+    def _pct_color(value):
+        if value is None:
+            return TEXT_DIM
+        if value < 0.2:
+            return RED
+        if value < 0.5:
+            return ORANGE
+        return GREEN
 
 
 def main():
