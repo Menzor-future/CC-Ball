@@ -223,11 +223,14 @@ class UsageWidget(tk.Tk):
 
     def _start_expand_animation(self):
         _ui_log("start expand animation")
-        # 准备表格（文字先隐藏）
-        self._render_table(self.providers, self.results, self.error)
+        # 准备表格（文字先隐藏），但不调整窗口尺寸
+        self._render_table(self.providers, self.results, self.error, finalize_geometry=False)
         self._set_table_text_color(BG)
         self.table_frame.grid()
         self.orb_frame.grid_remove()
+
+        # 强制回到 orb 尺寸作为动画起点
+        self.geometry(self._centered_geometry(ORB_SIZE, ORB_SIZE))
 
         start_size = (ORB_SIZE, ORB_SIZE)
         end_w, end_h = self._compute_table_geometry(len(self.providers) if self.providers else 1)
@@ -315,17 +318,24 @@ class UsageWidget(tk.Tk):
         cfg = load_user_config()
         self._mode = cfg.get("mode", "orb")
         geo = cfg.get("geometry")
+        x = y = 80
         if geo:
             try:
-                self.geometry(geo)
-                return
-            except tk.TclError:
+                # 只读取位置，尺寸根据当前 mode 重新计算
+                parts = geo.split("+", 1)
+                if len(parts) == 2:
+                    x, y = map(int, parts[1].split("+", 1))
+            except Exception:
                 pass
-        self._set_default_geometry()
+        if self._mode == "table":
+            width, height = self._compute_table_geometry(len(self.providers) if self.providers else 1)
+        else:
+            width, height = ORB_SIZE, ORB_SIZE
+        self.geometry(f"{width}x{height}+{x}+{y}")
 
     def _set_default_geometry(self):
         if self._mode == "table":
-            width, height = self._compute_table_geometry(1)
+            width, height = self._compute_table_geometry(len(self.providers) if self.providers else 1)
         else:
             width, height = ORB_SIZE, ORB_SIZE
         self.geometry(f"{width}x{height}+80+80")
@@ -385,6 +395,9 @@ class UsageWidget(tk.Tk):
         if self._first_show_pending:
             self._first_show_pending = False
             _ui_log("deiconify first show")
+            # 首次显示前确保几何正确
+            if self._mode == "orb":
+                self.geometry(self._centered_geometry(ORB_SIZE, ORB_SIZE))
             self.deiconify()
             self._apply_glass_background()
 
@@ -423,7 +436,7 @@ class UsageWidget(tk.Tk):
         return GREEN
 
     # ---- 表格渲染 ----
-    def _render_table(self, providers, results, error):
+    def _render_table(self, providers, results, error, finalize_geometry=True):
         try:
             _ui_log(f"_render_table: providers={len(providers)} error={error}")
 
@@ -436,17 +449,20 @@ class UsageWidget(tk.Tk):
 
             if error:
                 self._render_error(error)
-                self._finalize_table_geometry(data_rows=2)
+                if finalize_geometry:
+                    self._finalize_table_geometry(data_rows=2)
                 return
             if not providers:
                 self._render_error("未找到 provider 配置")
-                self._finalize_table_geometry(data_rows=2)
+                if finalize_geometry:
+                    self._finalize_table_geometry(data_rows=2)
                 return
 
             for row_idx, provider in enumerate(providers, start=1):
                 self._render_provider_row(row_idx, provider, results.get(provider["id"], {}))
 
-            self._finalize_table_geometry(data_rows=len(providers))
+            if finalize_geometry:
+                self._finalize_table_geometry(data_rows=len(providers))
             self.updated_label.config(text=f"更新于 {dt.datetime.now().strftime('%H:%M:%S')}")
         except Exception as exc:
             _ui_log(f"_render_table EXCEPTION: {type(exc).__name__}: {exc}")
