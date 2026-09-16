@@ -186,7 +186,9 @@ class UsageWidget(tk.Tk):
     # ---- 背景 ----
     def _apply_glass_background(self):
         """Windows 11 用 DWM 设置 Acrylic/Mica；失败则退回 tkinter alpha。"""
-        if not _set_window_acrylic_mica(self.winfo_id()):
+        hwnd = self.winfo_id()
+        _set_window_transparent(hwnd)
+        if not _set_window_acrylic_mica(hwnd):
             self.attributes("-alpha", WINDOW_ALPHA)
 
     # ---- 拖动 ----
@@ -613,6 +615,26 @@ def _lerp_color(c1, c2, t):
     g = int(g1 + (g2 - g1) * t)
     b = int(b1 + (b2 - b1) * t)
     return f"#{r:02x}{g:02x}{b:02x}"
+
+
+def _set_window_transparent(hwnd):
+    """
+    使用 Win32 API 设置窗口分层透明（LWA_COLORKEY）。
+    窗口中所有 #010203 颜色的像素会被系统剔除，实现真正透明。
+    返回是否成功。
+    """
+    try:
+        GWL_EXSTYLE = -20
+        WS_EX_LAYERED = 0x00080000
+        LWA_COLORKEY = 0x00000001
+        user32 = ctypes.windll.user32
+        exstyle = user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
+        user32.SetWindowLongW(hwnd, GWL_EXSTYLE, exstyle | WS_EX_LAYERED)
+        # color key 0x00030102 -> RGB(0x01, 0x02, 0x03) = #010203
+        user32.SetLayeredWindowAttributes(hwnd, 0x00030102, 0, LWA_COLORKEY)
+        return True
+    except Exception:
+        return False
 
 
 def _set_window_acrylic_mica(hwnd, backdrop=3):
