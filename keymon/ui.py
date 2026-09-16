@@ -190,8 +190,9 @@ class UsageWidget(tk.Tk):
         _ui_log(f"_apply_glass_background: hwnd={hwnd}")
         ok = _set_window_transparent(hwnd)
         _ui_log(f"_apply_glass_background: transparent={ok}")
-        if not _set_window_acrylic_mica(hwnd):
-            self.attributes("-alpha", WINDOW_ALPHA)
+        # 暂时禁用 DWM Acrylic/Mica，排查 color key 是否生效
+        # if not _set_window_acrylic_mica(hwnd):
+        #     self.attributes("-alpha", WINDOW_ALPHA)
 
     # ---- 拖动 ----
     def _start_drag(self, event):
