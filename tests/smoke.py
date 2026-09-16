@@ -25,8 +25,10 @@ def main():
             assert "error" not in res, res
             assert isinstance(res.get("h5_remaining"), float)
             assert isinstance(res.get("d7_remaining"), float)
+            account_name = res.get("account_name") or p["name"]
+            assert account_name, "kimi account_name should not be empty"
             print(
-                f"[kimi] {p['name']:22} {p['model']:18} "
+                f"[kimi] {account_name:22} {p['model']:18} "
                 f"5h={res['h5_remaining']*100:.0f}% 7d={res['d7_remaining']*100:.0f}%"
             )
         elif p["provider_type"] == "deepseek":

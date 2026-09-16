@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
-"""悬浮窗 UI：半透明表格，展示 商名 | 模型 | 5h | 7day。"""
+"""悬浮窗 UI：Acrylic/Mica 磨砂玻璃背景，表格展示 账号名 | 模型 | 5h | 7day。"""
+import ctypes
 import datetime as dt
 import threading
 import tkinter as tk
@@ -15,7 +16,7 @@ from .config import (
 from .ccdb import read_providers
 from .quota import QuotaCache, fetch_all
 
-# 配色（深色玻璃风）
+# 配色（深色玻璃风；文字保持 100% 不透明）
 BG = "#1a1a20"
 BG_CURRENT = "#2a2530"
 TEXT = "#e6e6ea"
@@ -27,8 +28,8 @@ RED = "#f85149"
 HEADER_BG = "#25252c"
 GRID = "#35353d"
 
-COLS = ["商名", "模型", "5h", "7day"]
-COL_WIDTHS = [120, 130, 95, 95]
+COLS = ["账号名", "模型", "5h", "7day"]
+COL_WIDTHS = [110, 120, 105, 105]
 
 
 class UsageWidget(tk.Tk):
@@ -38,7 +39,6 @@ class UsageWidget(tk.Tk):
         self.configure(bg=BG)
         self.overrideredirect(True)
         self.attributes("-topmost", True)
-        self.attributes("-alpha", WINDOW_ALPHA)
         self.resizable(False, False)
 
         # 字体
@@ -62,7 +62,15 @@ class UsageWidget(tk.Tk):
         self._auto_refresh_id = None
 
         self._restore_geometry()
+        # 在可见之后应用 DWM 磨砂玻璃背景（否则 HWND 无效）
+        self.after(10, self._apply_glass_background)
         self.refresh()
+
+    # ---- 背景 ----
+    def _apply_glass_background(self):
+        """Windows 11 用 DWM 设置 Acrylic/Mica；失败则退回 tkinter alpha。"""
+        if not _set_window_acrylic_mica(self.winfo_id()):
+            self.attributes("-alpha", WINDOW_ALPHA)
 
     # ---- 拖动 ----
     def _start_drag(self, event):
@@ -201,12 +209,20 @@ class UsageWidget(tk.Tk):
         font = self.font_body_bold if is_current else self.font_body
         cells = []
 
-        # 商名
-        cells.append(self._cell(row_idx, 0, provider["name"], bg, font=font, anchor="w"))
+        ptype = provider["provider_type"]
+        # 账号名：Kimi 用 /v1/me 昵称，DeepSeek 固定 DeepSeek，Claude 固定 Claude
+        account_name = provider["name"]
+        if ptype == "kimi":
+            account_name = res.get("account_name") or provider["name"]
+        elif ptype == "deepseek":
+            account_name = "DeepSeek"
+        elif ptype == "anthropic":
+            account_name = "Claude"
+
+        cells.append(self._cell(row_idx, 0, account_name, bg, font=font, anchor="w"))
         # 模型
         cells.append(self._cell(row_idx, 1, provider["model"], bg, font=font, anchor="w", fg=TEXT_DIM))
 
-        ptype = provider["provider_type"]
         if "error" in res:
             cells.append(self._cell(row_idx, 2, res["error"], bg, font=font, fg=RED, anchor="e"))
             cells.append(self._cell(row_idx, 3, "", bg, font=font))
@@ -239,7 +255,7 @@ class UsageWidget(tk.Tk):
             ))
             cells.append(self._cell(
                 row_idx, 3,
-                self._fmt_pct(d7, res.get("d7_reset")), bg, font=font,
+                self._fmt_pct(d7, res.get("d7_reset"), compact=True), bg, font=font,
                 fg=self._pct_color(d7), anchor="e",
             ))
 
@@ -265,11 +281,11 @@ class UsageWidget(tk.Tk):
         self._rows.append([cell])
 
     @staticmethod
-    def _fmt_pct(value, reset_time=None):
+    def _fmt_pct(value, reset_time=None, compact=False):
         pct = UsageWidget._fmt_pct_raw(value)
         if value is None or not reset_time:
             return pct
-        return f"{pct} ({UsageWidget._fmt_countdown(reset_time)})"
+        return f"{pct} ({UsageWidget._fmt_countdown(reset_time, compact=compact)})"
 
     @staticmethod
     def _fmt_pct_raw(value):
@@ -278,8 +294,8 @@ class UsageWidget(tk.Tk):
         return f"{max(0.0, min(1.0, value)) * 100:.0f}%"
 
     @staticmethod
-    def _fmt_countdown(reset_time):
-        """把 ISO reset_time 格式化为剩余时间，如 2h15m / 1d3h / expired。"""
+    def _fmt_countdown(reset_time, compact=False):
+        """把 ISO reset_time 格式化为剩余时间。compact=True 时只显示最大单位，适合 7day 列。"""
         if not reset_time:
             return "-"
         try:
@@ -294,6 +310,12 @@ class UsageWidget(tk.Tk):
             days = total_seconds // 86400
             hours = (total_seconds % 86400) // 3600
             minutes = (total_seconds % 3600) // 60
+            if compact:
+                if days > 0:
+                    return f"{days}d"
+                if hours > 0:
+                    return f"{hours}h"
+                return f"{minutes}m"
             if days > 0:
                 return f"{days}d{hours}h"
             if hours > 0:
@@ -311,6 +333,38 @@ class UsageWidget(tk.Tk):
         if value < 0.5:
             return ORANGE
         return GREEN
+
+
+def _set_window_acrylic_mica(hwnd, backdrop=3):
+    """
+    调用 Windows DWM API 设置窗口背景为 Acrylic/Mica。
+    backdrop: 2=Mica, 3=Acrylic, 4=Mica Alt。
+    返回是否成功。
+    """
+    try:
+        # 优先用 DWMWA_SYSTEMBACKDROP_TYPE (Windows 11)
+        DWMWA_USE_IMMERSIVE_DARK_MODE = 20
+        DWMWA_SYSTEMBACKDROP_TYPE = 38
+        dwmapi = ctypes.windll.dwmapi
+        # 启用沉浸式深色模式，让 Acrylic 呈深玻璃色
+        dark = ctypes.c_int(1)
+        dwmapi.DwmSetWindowAttribute(
+            hwnd,
+            DWMWA_USE_IMMERSIVE_DARK_MODE,
+            ctypes.byref(dark),
+            ctypes.sizeof(dark),
+        )
+        # 设置背景类型
+        backdrop_type = ctypes.c_int(backdrop)
+        dwmapi.DwmSetWindowAttribute(
+            hwnd,
+            DWMWA_SYSTEMBACKDROP_TYPE,
+            ctypes.byref(backdrop_type),
+            ctypes.sizeof(backdrop_type),
+        )
+        return True
+    except Exception:
+        return False
 
 
 def main():

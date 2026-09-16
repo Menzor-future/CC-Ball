@@ -5,10 +5,11 @@
 ## 功能
 
 - 自动读取 `~/.cc-switch/cc-switch.db` 中的 Claude providers，**每个 provider 配置一行**
-- 半透明背景（90% 不透明）、紧凑表格布局
-- **Kimi For Coding**：显示 5 小时 / 7 天剩余用量百分比，括号内显示重置倒计时（如 `76%(2h15m)`）
-- **DeepSeek**：显示人民币余额
-- **Claude Official**：预留 5h/7day 显示，需要 Claude Code 登录后的 OAuth token（本机未登录时显示 `N/A`）
+- Windows 11 Acrylic/Mica 磨砂玻璃背景，**文字 100% 不透明**
+- 紧凑表格布局：账号名 | 模型 | 5h | 7day
+- **Kimi For Coding**：账号名显示 `/v1/me` 返回的昵称；5h 显示剩余用量百分比 + 重置倒计时（如 `76%(2h15m)`），7day 显示剩余百分比 + 简化倒计时（如 `70%(5d)`）
+- **DeepSeek**：账号名固定显示 `DeepSeek`，余额合并显示在 5h/7day 两列
+- **Claude Official**：账号名固定显示 `Claude`；5h/7day 预留，需要 Claude Code 登录后的 OAuth token（本机未登录时显示 `N/A`）
 - 当前使用的 provider 行文字加粗 + 背景高亮
 - 每分钟自动刷新；右上角 ⟳ 可手动刷新
 - 拖动窗口后自动记忆位置
@@ -34,7 +35,7 @@ pythonw app.pyw
 | `PROXY_URL` | HTTP 代理地址，留空则直连 | `http://127.0.0.1:7890` |
 | `REFRESH_INTERVAL_S` | 自动刷新间隔（秒） | `60` |
 | `LOW_BALANCE_CNY` | DeepSeek 余额低于该值变橙色提醒 | `5.0` |
-| `WINDOW_ALPHA` | 背景不透明度（0.0–1.0） | `0.90` |
+| `WINDOW_ALPHA` | 背景不透明度（0.0–1.0），DWM 不可用时作为 fallback | `0.90` |
 
 用户数据（窗口位置）保存在 `%LOCALAPPDATA%\key-usage-widget\config.json`。
 
@@ -49,8 +50,8 @@ pythonw app.pyw
 ## 已知限制
 
 - Claude Official 的 5h/7day 需要本机已登录 Claude Code；当前未检测登录态时会显示 `N/A`。
-- Kimi 只展示 5h/7day 百分比，没有实时余额接口。
-- DeepSeek 没有 5h/7day 接口。
+- Kimi 只展示 5h/7day 百分比与账号昵称，没有实时余额接口。
+- DeepSeek 没有 5h/7day 接口，余额列合并显示。
 
 ## 安全说明
 

@@ -46,30 +46,62 @@ def _fmt_error(exc):
 
 
 def query_kimi_usages(token):
-    """查询 Kimi 5h/7day 用量，返回剩余百分比与 reset 时间。"""
-    try:
-        start = time.time()
-        data = _request("https://api.kimi.com/coding/v1/usages", token)
-        elapsed = time.time() - start
-        usages = data.get("usages", {})
-        h5 = usages.get("limit_5h", {})
-        d7 = usages.get("limit_7d", {})
+    """查询 Kimi 5h/7day 用量与账号昵称，返回剩余百分比、reset 时间、account_name。"""
+    start = time.time()
+    results = {"usages": None, "me": None}
+    errors = []
+    lock = threading.Lock()
 
-        def remaining(ratio):
-            try:
-                return max(0.0, 1.0 - float(ratio))
-            except (TypeError, ValueError):
-                return None
+    def fetch_usages():
+        try:
+            results["usages"] = _request("https://api.kimi.com/coding/v1/usages", token)
+        except Exception as exc:
+            with lock:
+                errors.append(_fmt_error(exc))
 
-        return {
-            "h5_remaining": remaining(h5.get("used_ratio")),
-            "h5_reset": h5.get("reset_time"),
-            "d7_remaining": remaining(d7.get("used_ratio")),
-            "d7_reset": d7.get("reset_time"),
-            "elapsed_ms": round(elapsed * 1000, 1),
-        }
-    except Exception as exc:
-        return _fmt_error(exc)
+    def fetch_me():
+        try:
+            results["me"] = _request("https://api.kimi.com/coding/v1/me", token)
+        except Exception:
+            # 账号名非关键，失败可忽略
+            pass
+
+    threads = [threading.Thread(target=fetch_usages), threading.Thread(target=fetch_me)]
+    for t in threads:
+        t.daemon = True
+        t.start()
+    for t in threads:
+        t.join(timeout=HTTP_TIMEOUT_S + 2)
+
+    if errors:
+        return errors[0]
+    if results["usages"] is None:
+        return {"error": "usages request failed"}
+
+    usages = results["usages"].get("usages", {})
+    h5 = usages.get("limit_5h", {})
+    d7 = usages.get("limit_7d", {})
+
+    def remaining(ratio):
+        try:
+            return max(0.0, 1.0 - float(ratio))
+        except (TypeError, ValueError):
+            return None
+
+    account_name = None
+    if results["me"]:
+        raw = results["me"].get("nickname", "").strip()
+        if raw:
+            account_name = raw
+
+    return {
+        "account_name": account_name,
+        "h5_remaining": remaining(h5.get("used_ratio")),
+        "h5_reset": h5.get("reset_time"),
+        "d7_remaining": remaining(d7.get("used_ratio")),
+        "d7_reset": d7.get("reset_time"),
+        "elapsed_ms": round((time.time() - start) * 1000, 1),
+    }
 
 
 def query_deepseek_balance(token):
