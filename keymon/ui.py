@@ -2,6 +2,7 @@
 """悬浮窗 UI：Acrylic/Mica 磨砂玻璃背景，表格展示 账号名 | 模型 | 5h | 7day。"""
 import ctypes
 import datetime as dt
+import os
 import threading
 import tkinter as tk
 from tkinter import font as tkfont
@@ -9,12 +10,32 @@ from tkinter import font as tkfont
 from .config import (
     LOW_BALANCE_CNY,
     REFRESH_INTERVAL_S,
+    USER_CONFIG_PATH,
     WINDOW_ALPHA,
     load_user_config,
     save_user_config,
 )
 from .ccdb import read_providers
 from .quota import QuotaCache, fetch_all
+
+# 诊断日志路径（仅用于排查 UI 行数/空白等问题）
+_UI_LOG_PATH = os.path.join(os.path.dirname(USER_CONFIG_PATH), "ui.log")
+
+
+def _ui_log(msg):
+    try:
+        with open(_UI_LOG_PATH, "a", encoding="utf-8") as f:
+            f.write(f"{dt.datetime.now():%H:%M:%S.%f} {msg}\n")
+    except Exception:
+        pass
+
+
+def _reset_ui_log():
+    try:
+        with open(_UI_LOG_PATH, "w", encoding="utf-8") as f:
+            f.write("")
+    except Exception:
+        pass
 
 # 配色（深色玻璃风；文字保持 100% 不透明）
 BG = "#1a1a20"
@@ -40,6 +61,7 @@ class UsageWidget(tk.Tk):
         self.overrideredirect(True)
         self.attributes("-topmost", True)
         self.resizable(False, False)
+        self.withdraw()  # 首次渲染完成前隐藏，避免默认尺寸闪现
 
         # 字体
         self.font_header = tkfont.Font(family="Microsoft YaHei UI", size=9, weight="bold")
@@ -60,10 +82,12 @@ class UsageWidget(tk.Tk):
         self.cache = QuotaCache(ttl_s=60)
         self._refresh_in_progress = False
         self._auto_refresh_id = None
+        self._first_show_pending = True  # 首次渲染完成前隐藏窗口，避免闪烁
+
+        _reset_ui_log()
+        _ui_log("UsageWidget init")
 
         self._restore_geometry()
-        # 在可见之后应用 DWM 磨砂玻璃背景（否则 HWND 无效）
-        self.after(10, self._apply_glass_background)
         self.refresh()
 
     # ---- 背景 ----
@@ -140,9 +164,22 @@ class UsageWidget(tk.Tk):
         self._set_default_geometry()
 
     def _set_default_geometry(self):
-        # 宽度 = 列宽和 + 边距; 高度由行数决定，先给个最小值
-        width = sum(COL_WIDTHS) + 16 + 2  # 16 pad, 1px grid borders approx
-        self.geometry(f"{width}x160+80+80")
+        width, height = self._compute_geometry(1)
+        self.geometry(f"{width}x{height}+80+80")
+
+    def _compute_geometry(self, data_rows):
+        """根据数据行数精确计算窗口宽高，避免依赖 withdraw 状态下的 winfo。"""
+        cell_grid_pad_x = 1  # 单侧
+        table_frame_pad_x = 8  # 单侧
+        width = sum(COL_WIDTHS) + len(COL_WIDTHS) * cell_grid_pad_x * 2 + table_frame_pad_x * 2
+
+        header_h = 36
+        table_header_h = 28
+        row_h = 28
+        table_bottom_pad = 6
+        footer_h = 28
+        height = header_h + table_header_h + data_rows * row_h + table_bottom_pad + footer_h
+        return width, height
 
     def _save_geometry(self):
         cfg = load_user_config()
@@ -177,6 +214,11 @@ class UsageWidget(tk.Tk):
 
     # ---- 渲染 ----
     def _render(self, providers, results, error):
+        _ui_log(f"_render start: providers={len(providers)} error={error}")
+        for i, p in enumerate(providers):
+            res = results.get(p["id"], {})
+            _ui_log(f"  provider[{i}] id={p['id']} name={p['name']} type={p['provider_type']} has_error={'error' in res}")
+
         # 清旧行
         for row_cells in self._rows:
             for cell in row_cells:
@@ -184,24 +226,39 @@ class UsageWidget(tk.Tk):
         self._rows.clear()
 
         if error:
+            _ui_log("_render error branch")
             self._render_error(error)
+            self._finalize_geometry(data_rows=2)
             return
         if not providers:
+            _ui_log("_render no providers branch")
             self._render_error("未找到 provider 配置")
+            self._finalize_geometry(data_rows=2)
             return
 
         for row_idx, provider in enumerate(providers, start=1):
+            _ui_log(f"_render row {row_idx} {provider['id']}")
             self._render_provider_row(row_idx, provider, results.get(provider["id"], {}))
 
-        # 自适应高度
-        height = 60 + len(providers) * 28
-        width = sum(COL_WIDTHS) + 18
+        _ui_log(f"_render finalize: rows_created={len(self._rows)}")
+        self._finalize_geometry(data_rows=len(providers))
+
+        self.updated_label.config(text=f"更新于 {dt.datetime.now().strftime('%H:%M:%S')}")
+
+    def _finalize_geometry(self, data_rows=0):
+        """根据数据行数精确设置窗口大小，避免右侧空白或高度抖动。"""
+        width, height = self._compute_geometry(data_rows)
         geo = self.geometry()
         pos = geo.split("+", 1)[1] if "+" in geo else "80+80"
+        _ui_log(f"_finalize_geometry: data_rows={data_rows} win={width}x{height} pos={pos}")
         self.geometry(f"{width}x{height}+{pos}")
 
-        import datetime
-        self.updated_label.config(text=f"更新于 {datetime.datetime.now().strftime('%H:%M:%S')}")
+        # 首次渲染完成后才真正显示窗口，避免默认尺寸闪过
+        if self._first_show_pending:
+            self._first_show_pending = False
+            _ui_log("deiconify first show")
+            self.deiconify()
+            self._apply_glass_background()
 
     def _render_provider_row(self, row_idx, provider, res):
         is_current = provider["is_current"]
