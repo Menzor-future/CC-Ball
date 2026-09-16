@@ -101,3 +101,65 @@ D:\Mings_Project\key-usage-widget\
 4. 当前使用的 key 有角标，切换 provider 后（重启面板）跟随变化
 5. 点刷新不卡 UI（网络在子线程）；拔代理后卡片显示异常红字而不是卡死
 6. 关闭再开，窗口位置保留
+
+---
+
+# v2 改造：极简半透明用量表
+
+## v2-1 目标
+
+响应阿泽需求：背景半透明、布局更紧凑、每个 provider 配置一行，只显示 **商名 | 选中模型 | 5h 余量 | 7day 余量**。
+
+## v2-2 关键限制
+
+- **Claude Official**：5h/7day 来自 Anthropic 未公开端点 `https://api.anthropic.com/api/oauth/usage`，需要 Claude Code 登录后的 OAuth token。
+- **Kimi For Coding**：实测可通过 `GET https://api.kimi.com/coding/v1/usages` 拿到 `usages.limit_5h.used_ratio` 与 `usages.limit_7d.used_ratio`，剩余量 = `1 - used_ratio`。
+- **DeepSeek**：没有官方 5h/7day 接口，只有 `/user/balance` 余额；DeepSeek 行在 5h/7day 两列位置合并显示「余额 ¥x.xx」，不再显示 N/A。
+- 本机当前未检测到 Claude Code 登录态，Claude Official 行会显示 `N/A`；代码预留，登录后自动生效。
+
+## v2-3 数据方案
+
+| 列 | 来源 | 说明 |
+|---|---|---|
+| 商名 | `providers.name` | 每个 provider 配置一行 |
+| 选中模型 | `settings_config.env.ANTHROPIC_DEFAULT_FABLE_MODEL`，不存在则依次 fallback 到 `*_HAiku_MODEL`、`*_OPUS_MODEL` | 代表该配置当前默认调用的模型 |
+| 5h 余量 | Kimi：`/v1/usages` 的 `usages.limit_5h.used_ratio`<br>Claude Official：`/api/oauth/usage` 的 rolling 5h 条目<br>DeepSeek：合并到「余额」列显示 | 显示为剩余百分比 |
+| 7day 余量 | Kimi：`/v1/usages` 的 `usages.limit_7d.used_ratio`<br>Claude Official：`/api/oauth/usage` 的 weekly 条目<br>DeepSeek：合并到「余额」列显示 | 显示为剩余百分比 |
+
+- OAuth token 获取顺序：
+  1. `~/.claude/.credentials.json`（如未来存在）
+  2. Windows Credential Manager 中尝试读取 `Claude Code` / `anthropic` 相关条目（如未来存在）
+  3. 都不存在则显示 `N/A`
+
+## v2-4 界面草图
+
+```
+┌─ Key 用量面板          ⟳ ✕─┐
+│ 商名        模型      5h    7day │
+│ Kimi-1   k2.7-code   99%   70%  │
+│ Kimi-2   k3[1M]      85%   45%  │
+│ DeepSeek v4-pro      余额 ¥6.25 │
+│ DeepSeek v4-flash    余额 ¥6.25 │
+│ Claude   claude-sonnet N/A  N/A │
+└──── 更新于 14:32 ──────────────┘
+```
+
+- 背景透明度：`alpha=0.70`（70% 不透明）
+- 窗口尺寸：约 `420x160` 起，根据行数自适应高度
+- 当前使用的 provider 行用不同背景色高亮
+- 表头可点击列排序（至少支持按商名排序）
+
+## v2-5 技术变更点
+
+- `ccdb.py`：新增 `read_providers()` 返回每个 provider 配置（不再按 key 去重）；新增 `get_default_model()`
+- `quota.py`：新增 `query_kimi_usages(token)` 解析 5h/7day；新增 `query_claude_usage(oauth_token)` 作为 Claude Official 预留
+- `ui.py`：重写为表格布局，半透明背景，移除旧卡片代码
+- `config.py`：新增 `WINDOW_ALPHA = 0.70`
+- `README.md` 与 `PRD.md` 同步更新
+
+## v2-6 里程碑 checklist
+
+- [ ] V2-M1 数据层：读取每个 provider 配置、默认模型
+- [ ] V2-M2 Quota 层：Kimi `/v1/usages` 5h/7day 解析 + Claude `/api/oauth/usage` 预留
+- [ ] V2-M3 UI 重写：半透明 + 4 列表格 + 当前 provider 高亮 + 紧凑尺寸
+- [ ] V2-M4 测试与文档：冒烟测试覆盖新列、README 更新、PRD checklist 完成
