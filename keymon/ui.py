@@ -224,7 +224,7 @@ class UsageWidget(tk.Tk):
         # if not _set_window_acrylic_mica(hwnd):
         #     self.attributes("-alpha", WINDOW_ALPHA)
         # 验证窗口中心像素颜色
-        self.after(2000, lambda: _verify_center_pixel(self))
+        self.after(2000, self._verify_center_pixel)
 
     # ---- 拖动 ----
     def _start_drag(self, event):
