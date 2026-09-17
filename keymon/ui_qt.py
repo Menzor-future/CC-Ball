@@ -679,12 +679,20 @@ class MainWindow(QMainWindow):
         if obj is self.close_btn:
             if event.type() == QEvent.Enter:
                 self._close_hide_timer.stop()
+                # 收回途中真实 hover 按钮（Enter 只在光标进入时产生，不会是合成假事件）：
+                # 立即改向弹出，避免按钮从光标下"抽走"
+                if (self._close_pop_anim.state() == QAbstractAnimation.Running
+                        and not self._close_pop_showing):
+                    self._start_close_pop(True)
             elif event.type() == QEvent.Leave:
                 self._close_hide_timer.start()
         return super().eventFilter(obj, event)
 
     def _start_close_pop_in(self):
         self._close_hide_timer.stop()
+        if self._close_pop_anim.state() == QAbstractAnimation.Running:
+            return  # 弹出/收回动画进行中不重启：收回途中主窗 Enter 是按钮抽走时光标未动
+        # 合成的假事件，真实返回由按钮 Enter（eventFilter）改向
         if (self.close_btn.isVisible()
                 and self._close_btn_fx.opacity() >= 0.99
                 and self._btn_parent_rect() == self._close_full_rect):
@@ -694,6 +702,9 @@ class MainWindow(QMainWindow):
     def _start_close_pop_out(self):
         if not self.close_btn.isVisible():
             return
+        if (self._close_pop_anim.state() == QAbstractAnimation.Running
+                and not self._close_pop_showing):
+            return  # 收回进行中不重启（按钮抽走触发的 Leave 会重置倒计时，到点勿打断）
         self._start_close_pop(False)
 
     def _start_close_pop(self, showing):
