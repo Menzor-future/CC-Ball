@@ -8,8 +8,8 @@ import threading
 
 from PySide6.QtCore import (
     QAbstractAnimation, QEasingCurve, QParallelAnimationGroup,
-    QPropertyAnimation, Qt, QTimer,
-    Signal, QObject, QEvent, QRectF, QPoint, QPointF, QSize, Property,
+    QPropertyAnimation, Qt, QTimer, QVariantAnimation,
+    Signal, QObject, QEvent, QRect, QRectF, QPoint, QPointF, QSize, Property,
     QSequentialAnimationGroup,
 )
 from PySide6.QtGui import (
@@ -78,9 +78,10 @@ ORB_PAD = 8
 ORB_STROKE = 7
 
 # 悬停关闭小球
-CLOSE_BTN_SIZE = 24          # 直径
-CLOSE_BTN_FADE_IN_MS = 150
-CLOSE_BTN_FADE_OUT_MS = 200
+CLOSE_BTN_SIZE = 24          # 终点直径（完整按钮）
+CLOSE_BTN_DOT_SIZE = 6       # 起点直径（圆球沿上的点）
+CLOSE_BTN_POP_IN_MS = 260    # 飞出：球沿小点 → 右上角按钮
+CLOSE_BTN_POP_OUT_MS = 200   # 收回：按钮 → 球沿小点
 CLOSE_BTN_HIDE_DELAY_MS = 200  # 移出后延迟隐藏，给"球→按钮"鼠标移动留缓冲，防闪烁
 
 
@@ -339,7 +340,7 @@ class CloseOrbButton(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setFixedSize(CLOSE_BTN_SIZE, CLOSE_BTN_SIZE)
+        # 尺寸/位置由弹出动画驱动（球沿小点 → 右上角按钮）
         self.setCursor(Qt.PointingHandCursor)
         self._hovered = False
         self._bg = QColor(HEADER_BG)
@@ -437,21 +438,29 @@ class MainWindow(QMainWindow):
         self.table.setGraphicsEffect(self.table_fx)
         self.table_fx.setOpacity(0.0)
 
-        # 悬停关闭小球（v6）：默认隐藏，orb 模式悬停时淡入
+        # 悬停关闭小球（v6）：默认隐藏，orb 模式悬停时从球沿"弹出"到右上角
         self.close_btn = CloseOrbButton(self)
-        self.close_btn.move(ORB_SIZE - CLOSE_BTN_SIZE - 8, 4)  # 压住圆球右上沿
+        # 弹出动画两端：起点=圆球右上沿 45° 处的小点（探出球沿）；终点=窗口最右上角
+        # （球外即窗外，(76,0) 是物理上离球最远的合法位置）
+        self._close_dot_rect = QRect(79, 15, CLOSE_BTN_DOT_SIZE, CLOSE_BTN_DOT_SIZE)
+        self._close_full_rect = QRect(ORB_SIZE - CLOSE_BTN_SIZE, 0, CLOSE_BTN_SIZE, CLOSE_BTN_SIZE)
+        self.close_btn.setGeometry(self._close_dot_rect)
         self.close_btn.clicked.connect(self._on_close_btn)
         self._close_btn_fx = QGraphicsOpacityEffect(self.close_btn)
         self.close_btn.setGraphicsEffect(self._close_btn_fx)
         self._close_btn_fx.setOpacity(0.0)
         self.close_btn.hide()
-        self._close_fade_anim = QPropertyAnimation(self._close_btn_fx, b"opacity")
-        self._close_fade_anim.setEasingCurve(QEasingCurve.OutCubic)
-        self._close_fade_anim.finished.connect(self._on_close_fade_done)
+        self._close_pop_anim = QVariantAnimation(self)
+        self._close_pop_anim.setEasingCurve(QEasingCurve.OutCubic)
+        self._close_pop_anim.valueChanged.connect(self._on_close_pop_frame)
+        self._close_pop_anim.finished.connect(self._on_close_pop_done)
+        self._close_pop_showing = False   # 当前动画方向
+        self._pop_from_rect = self._close_dot_rect
+        self._pop_to_rect = self._close_full_rect
         self._close_hide_timer = QTimer(self)
         self._close_hide_timer.setSingleShot(True)
         self._close_hide_timer.setInterval(CLOSE_BTN_HIDE_DELAY_MS)
-        self._close_hide_timer.timeout.connect(self._start_close_fade_out)
+        self._close_hide_timer.timeout.connect(self._start_close_pop_out)
         self.close_btn.installEventFilter(self)  # hover 桥接：进入按钮取消隐藏倒计时
 
         # V4 三阶段时序（展开）：
@@ -630,7 +639,7 @@ class MainWindow(QMainWindow):
     def enterEvent(self, event):
         super().enterEvent(event)
         if self._mode == "orb" and self._morph <= 0.01 and not self._anim_running():
-            self._start_close_fade_in()
+            self._start_close_pop_in()
 
     def leaveEvent(self, event):
         super().leaveEvent(event)
@@ -645,35 +654,55 @@ class MainWindow(QMainWindow):
                 self._close_hide_timer.start()
         return super().eventFilter(obj, event)
 
-    def _start_close_fade_in(self):
+    def _start_close_pop_in(self):
         self._close_hide_timer.stop()
-        if self.close_btn.isVisible() and self._close_btn_fx.opacity() >= 0.99:
-            return  # 已完全可见
-        self.close_btn.show()
-        self._close_fade_anim.stop()
-        self._close_fade_anim.setDuration(CLOSE_BTN_FADE_IN_MS)
-        self._close_fade_anim.setStartValue(self._close_btn_fx.opacity())
-        self._close_fade_anim.setEndValue(1.0)
-        self._close_fade_anim.start()
+        if (self.close_btn.isVisible()
+                and self._close_btn_fx.opacity() >= 0.99
+                and self.close_btn.geometry() == self._close_full_rect):
+            return  # 已完整弹出
+        self._start_close_pop(True)
 
-    def _start_close_fade_out(self):
+    def _start_close_pop_out(self):
         if not self.close_btn.isVisible():
             return
-        self._close_fade_anim.stop()
-        self._close_fade_anim.setDuration(CLOSE_BTN_FADE_OUT_MS)
-        self._close_fade_anim.setStartValue(self._close_btn_fx.opacity())
-        self._close_fade_anim.setEndValue(0.0)
-        self._close_fade_anim.start()
+        self._start_close_pop(False)
 
-    def _on_close_fade_done(self):
-        if self._close_btn_fx.opacity() < 0.05:
+    def _start_close_pop(self, showing):
+        self._close_pop_showing = showing
+        self._pop_from_rect = self.close_btn.geometry()
+        self._pop_to_rect = self._close_full_rect if showing else self._close_dot_rect
+        if showing:
+            self.close_btn.show()
+        self._close_pop_anim.stop()
+        self._close_pop_anim.setDuration(CLOSE_BTN_POP_IN_MS if showing else CLOSE_BTN_POP_OUT_MS)
+        self._close_pop_anim.setStartValue(0.0)
+        self._close_pop_anim.setEndValue(1.0)
+        self._close_pop_anim.start()
+
+    def _on_close_pop_frame(self, v):
+        # v：0→1（OutCubic 已施加）。收起时反向映射，形成"被吸回球沿"的手感
+        f = float(v) if self._close_pop_showing else 1.0 - float(v)
+        fr, to = self._pop_from_rect, self._pop_to_rect
+        x = round(fr.x() + (to.x() - fr.x()) * f)
+        y = round(fr.y() + (to.y() - fr.y()) * f)
+        w = round(fr.width() + (to.width() - fr.width()) * f)
+        h = round(fr.height() + (to.height() - fr.height()) * f)
+        self.close_btn.setGeometry(x, y, w, h)
+        # 透明度快速 ramp：前一半进度即实心，收尾段淡出
+        self._close_btn_fx.setOpacity(max(0.0, min(1.0, f * 2.0)))
+
+    def _on_close_pop_done(self):
+        if not self._close_pop_showing:
             self.close_btn.hide()
+            self.close_btn.setGeometry(self._close_dot_rect)
+            self._close_btn_fx.setOpacity(0.0)
 
     def _dismiss_close_btn(self):
-        """模式切换（展开/收起）时立即撤掉小球（无淡出）。"""
+        """模式切换（展开/收起）时立即撤掉小球（无动画）。"""
         self._close_hide_timer.stop()
-        self._close_fade_anim.stop()
+        self._close_pop_anim.stop()
         self.close_btn.hide()
+        self.close_btn.setGeometry(self._close_dot_rect)
         self._close_btn_fx.setOpacity(0.0)
 
     def _on_close_btn(self):
