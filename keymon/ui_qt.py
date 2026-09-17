@@ -445,10 +445,10 @@ class MainWindow(QMainWindow):
 
         # 悬停关闭小球（v6）：默认隐藏，orb 模式悬停时从球沿"弹出"到右上角
         self.close_btn = CloseOrbButton(self)
-        # 弹出动画两端：起点=圆球右上沿 45° 处的小点（探出球沿）；终点=与圆球相切的
-        # "徽章位" (82,-6)（球心距 ~62px）——不压进度环、不悬空，像别在球肩上的徽章
-        self._close_dot_rect = QRect(79, 15, CLOSE_BTN_DOT_SIZE, CLOSE_BTN_DOT_SIZE)
-        self._close_full_rect = QRect(82, -6, CLOSE_BTN_SIZE, CLOSE_BTN_SIZE)
+        # 弹出动画两端（轨迹=圆心 45° 放射直线）：起点=球面小点（距圆心 50px），
+        # 终点=径向外飞 ~30px 后（距圆心 80px，父坐标 (95,-19)）
+        self._close_dot_rect = QRect(82, 12, CLOSE_BTN_DOT_SIZE, CLOSE_BTN_DOT_SIZE)
+        self._close_full_rect = QRect(95, -19, CLOSE_BTN_SIZE, CLOSE_BTN_SIZE)
         self.close_btn.setGeometry(self._close_dot_rect)
         self.close_btn.clicked.connect(self._on_close_btn)
         self._close_btn_fx = QGraphicsOpacityEffect(self.close_btn)
