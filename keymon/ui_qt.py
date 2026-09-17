@@ -447,9 +447,11 @@ class MainWindow(QMainWindow):
         self.close_btn = CloseOrbButton(self)
         # 弹出动画两端（轨迹=圆心 45° 放射直线）：起点=球面小点（距圆心 50px），
         # 终点=径向外飞 ~30px 后（距圆心 80px，父坐标 (95,-19)）
+        # 注意：CloseOrbButton 是 Qt.Tool 独立顶层小窗，其 geometry 是【屏幕全局坐标】；
+        # 以下常量均为父内坐标，读写一律经 _btn_set_parent_rect/_btn_parent_rect 换算（v6-9）。
         self._close_dot_rect = QRect(82, 12, CLOSE_BTN_DOT_SIZE, CLOSE_BTN_DOT_SIZE)
         self._close_full_rect = QRect(95, -19, CLOSE_BTN_SIZE, CLOSE_BTN_SIZE)
-        self.close_btn.setGeometry(self._close_dot_rect)
+        self._btn_set_parent_rect(self._close_dot_rect)
         self.close_btn.clicked.connect(self._on_close_btn)
         self._close_btn_fx = QGraphicsOpacityEffect(self.close_btn)
         self.close_btn.setGraphicsEffect(self._close_btn_fx)
@@ -520,13 +522,25 @@ class MainWindow(QMainWindow):
 
     def moveEvent(self, event):
         super().moveEvent(event)
-        # Qt.Tool 独立小窗不会自动跟随主窗，需手动吸附（拖动/变形时保持徽章位）
+        # Qt.Tool 独立小窗不会自动跟随主窗，需手动吸附（拖动/变形时保持徽章位）。
+        # 动画运行中跳过：帧处理器每帧实时换算全局坐标，天然跟随。
         btn = getattr(self, "close_btn", None)
-        if btn is None or not btn.isVisible():
+        if btn is None:
             return
         if self._close_pop_anim.state() == QAbstractAnimation.Running:
-            return  # 帧处理器用的是父内坐标，天然跟随
-        btn.move(self._close_full_rect.topLeft())
+            return
+        target = self._close_full_rect if btn.isVisible() else self._close_dot_rect
+        btn.move(self.mapToGlobal(target.topLeft()))
+
+    # ---- 关闭小球坐标换算（v6-9：小窗 geometry 是屏幕全局坐标，常量是父内坐标） ----
+    def _btn_parent_rect(self):
+        """关闭小球当前几何换算回父内坐标。"""
+        g = self.close_btn.geometry()
+        return QRect(self.mapFromGlobal(g.topLeft()), g.size())
+
+    def _btn_set_parent_rect(self, r):
+        """以父内坐标设置关闭小球几何（换算为屏幕全局坐标写入）。"""
+        self.close_btn.setGeometry(QRect(self.mapToGlobal(r.topLeft()), r.size()))
 
     # ---- 变形动画属性（几何） ----
     def _get_morph(self):
@@ -673,7 +687,7 @@ class MainWindow(QMainWindow):
         self._close_hide_timer.stop()
         if (self.close_btn.isVisible()
                 and self._close_btn_fx.opacity() >= 0.99
-                and self.close_btn.geometry() == self._close_full_rect):
+                and self._btn_parent_rect() == self._close_full_rect):
             return  # 已完整弹出
         self._start_close_pop(True)
 
@@ -684,7 +698,7 @@ class MainWindow(QMainWindow):
 
     def _start_close_pop(self, showing):
         self._close_pop_showing = showing
-        self._pop_from_rect = self.close_btn.geometry()
+        self._pop_from_rect = self._btn_parent_rect()   # 统一在父内坐标系插值
         self._pop_to_rect = self._close_full_rect if showing else self._close_dot_rect
         if showing:
             self.close_btn.show()
@@ -695,21 +709,22 @@ class MainWindow(QMainWindow):
         self._close_pop_anim.start()
 
     def _on_close_pop_frame(self, v):
-        # v：0→1（OutCubic 已施加）。收起时反向映射，形成"被吸回球沿"的手感
+        # v：0→1（OutCubic 已施加）。收起时反向映射，形成"被吸回球沿"的手感。
+        # 插值在父内坐标系进行，写入时换算为屏幕全局坐标（小窗 geometry 是全局的）。
         f = float(v) if self._close_pop_showing else 1.0 - float(v)
         fr, to = self._pop_from_rect, self._pop_to_rect
         x = round(fr.x() + (to.x() - fr.x()) * f)
         y = round(fr.y() + (to.y() - fr.y()) * f)
         w = round(fr.width() + (to.width() - fr.width()) * f)
         h = round(fr.height() + (to.height() - fr.height()) * f)
-        self.close_btn.setGeometry(x, y, w, h)
+        self._btn_set_parent_rect(QRect(x, y, w, h))
         # 透明度快速 ramp：前一半进度即实心，收尾段淡出
         self._close_btn_fx.setOpacity(max(0.0, min(1.0, f * 2.0)))
 
     def _on_close_pop_done(self):
         if not self._close_pop_showing:
             self.close_btn.hide()
-            self.close_btn.setGeometry(self._close_dot_rect)
+            self._btn_set_parent_rect(self._close_dot_rect)
             self._close_btn_fx.setOpacity(0.0)
 
     def _dismiss_close_btn(self):
@@ -717,7 +732,7 @@ class MainWindow(QMainWindow):
         self._close_hide_timer.stop()
         self._close_pop_anim.stop()
         self.close_btn.hide()
-        self.close_btn.setGeometry(self._close_dot_rect)
+        self._btn_set_parent_rect(self._close_dot_rect)
         self._close_btn_fx.setOpacity(0.0)
 
     def _on_close_btn(self):
