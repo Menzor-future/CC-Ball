@@ -9,7 +9,7 @@ import threading
 from PySide6.QtCore import (
     QAbstractAnimation, QEasingCurve, QParallelAnimationGroup,
     QPropertyAnimation, Qt, QTimer,
-    Signal, QObject, QRectF, QPoint, QSize, Property,
+    Signal, QObject, QEvent, QRectF, QPoint, QPointF, QSize, Property,
     QSequentialAnimationGroup,
 )
 from PySide6.QtGui import (
@@ -17,7 +17,8 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import (
     QApplication, QFrame, QGridLayout, QGraphicsOpacityEffect, QHBoxLayout,
-    QLabel, QMainWindow, QSizePolicy, QSpacerItem, QVBoxLayout, QWidget,
+    QLabel, QMainWindow, QMessageBox, QSizePolicy, QSpacerItem, QVBoxLayout,
+    QWidget,
 )
 
 from .config import (
@@ -75,6 +76,12 @@ COL_WIDTHS = [110, 120, 105, 105]
 ORB_SIZE = 100
 ORB_PAD = 8
 ORB_STROKE = 7
+
+# 悬停关闭小球
+CLOSE_BTN_SIZE = 24          # 直径
+CLOSE_BTN_FADE_IN_MS = 150
+CLOSE_BTN_FADE_OUT_MS = 200
+CLOSE_BTN_HIDE_DELAY_MS = 200  # 移出后延迟隐藏，给"球→按钮"鼠标移动留缓冲，防闪烁
 
 
 class OrbWidget(QWidget):
@@ -324,6 +331,58 @@ class TableWidget(QFrame):
         return GREEN
 
 
+class CloseOrbButton(QWidget):
+    """圆球右上角悬浮关闭小球：同设计语言（圆形深灰实底 + 细边 + 白色 ✕），hover 变红。
+    位置压在圆球轮廓右上 45° 处——窗口角部透明，视觉上探出球沿。"""
+
+    clicked = Signal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setFixedSize(CLOSE_BTN_SIZE, CLOSE_BTN_SIZE)
+        self.setCursor(Qt.PointingHandCursor)
+        self._hovered = False
+        self._bg = QColor(HEADER_BG)
+        self._fg = QColor(TEXT)
+        self._bg_hover = QColor(RED)
+
+    def paintEvent(self, event):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        d = float(self.width())
+        # 圆形实底 + 细边（悬浮在透明角部，需要实底）
+        p.setPen(QPen(GRID, 1))
+        p.setBrush(QBrush(self._bg_hover if self._hovered else self._bg))
+        p.drawEllipse(QRectF(0.5, 0.5, d - 1, d - 1))
+        # ✕ 两根线
+        pad = d * 0.32
+        pen = QPen(self._fg, 1.8)
+        pen.setCapStyle(Qt.RoundCap)
+        p.setPen(pen)
+        p.setBrush(Qt.NoBrush)
+        p.drawLine(QPointF(pad, pad), QPointF(d - pad, d - pad))
+        p.drawLine(QPointF(d - pad, pad), QPointF(pad, d - pad))
+        p.end()
+
+    def enterEvent(self, event):
+        self._hovered = True
+        self.update()
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        self._hovered = False
+        self.update()
+        super().leaveEvent(event)
+
+    def mousePressEvent(self, event):
+        # 自行处理点击：吞掉事件，避免冒泡到主窗口触发拖动/展开
+        if event.button() == Qt.LeftButton:
+            event.accept()
+            self.clicked.emit()
+        else:
+            super().mousePressEvent(event)
+
+
 class MainWindow(QMainWindow):
     """主窗口：根据模式显示圆球或表格。"""
 
@@ -377,6 +436,23 @@ class MainWindow(QMainWindow):
         self.table_fx = QGraphicsOpacityEffect(self.table)
         self.table.setGraphicsEffect(self.table_fx)
         self.table_fx.setOpacity(0.0)
+
+        # 悬停关闭小球（v6）：默认隐藏，orb 模式悬停时淡入
+        self.close_btn = CloseOrbButton(self)
+        self.close_btn.move(ORB_SIZE - CLOSE_BTN_SIZE - 8, 4)  # 压住圆球右上沿
+        self.close_btn.clicked.connect(self._on_close_btn)
+        self._close_btn_fx = QGraphicsOpacityEffect(self.close_btn)
+        self.close_btn.setGraphicsEffect(self._close_btn_fx)
+        self._close_btn_fx.setOpacity(0.0)
+        self.close_btn.hide()
+        self._close_fade_anim = QPropertyAnimation(self._close_btn_fx, b"opacity")
+        self._close_fade_anim.setEasingCurve(QEasingCurve.OutCubic)
+        self._close_fade_anim.finished.connect(self._on_close_fade_done)
+        self._close_hide_timer = QTimer(self)
+        self._close_hide_timer.setSingleShot(True)
+        self._close_hide_timer.setInterval(CLOSE_BTN_HIDE_DELAY_MS)
+        self._close_hide_timer.timeout.connect(self._start_close_fade_out)
+        self.close_btn.installEventFilter(self)  # hover 桥接：进入按钮取消隐藏倒计时
 
         # V4 三阶段时序（展开）：
         #   阶段2（220ms）：彩环旋转回缩到 0（OutCubic，像被卷走）∥ 数字/底环线性淡出，
@@ -550,6 +626,88 @@ class MainWindow(QMainWindow):
                 self._expand()
             self._pressed = False
 
+    # ---- 悬停关闭小球（v6） ----
+    def enterEvent(self, event):
+        super().enterEvent(event)
+        if self._mode == "orb" and self._morph <= 0.01 and not self._anim_running():
+            self._start_close_fade_in()
+
+    def leaveEvent(self, event):
+        super().leaveEvent(event)
+        self._close_hide_timer.start()
+
+    def eventFilter(self, obj, event):
+        # hover 桥接：鼠标在"球 → 按钮"间移动时按钮不闪烁
+        if obj is self.close_btn:
+            if event.type() == QEvent.Enter:
+                self._close_hide_timer.stop()
+            elif event.type() == QEvent.Leave:
+                self._close_hide_timer.start()
+        return super().eventFilter(obj, event)
+
+    def _start_close_fade_in(self):
+        self._close_hide_timer.stop()
+        if self.close_btn.isVisible() and self._close_btn_fx.opacity() >= 0.99:
+            return  # 已完全可见
+        self.close_btn.show()
+        self._close_fade_anim.stop()
+        self._close_fade_anim.setDuration(CLOSE_BTN_FADE_IN_MS)
+        self._close_fade_anim.setStartValue(self._close_btn_fx.opacity())
+        self._close_fade_anim.setEndValue(1.0)
+        self._close_fade_anim.start()
+
+    def _start_close_fade_out(self):
+        if not self.close_btn.isVisible():
+            return
+        self._close_fade_anim.stop()
+        self._close_fade_anim.setDuration(CLOSE_BTN_FADE_OUT_MS)
+        self._close_fade_anim.setStartValue(self._close_btn_fx.opacity())
+        self._close_fade_anim.setEndValue(0.0)
+        self._close_fade_anim.start()
+
+    def _on_close_fade_done(self):
+        if self._close_btn_fx.opacity() < 0.05:
+            self.close_btn.hide()
+
+    def _dismiss_close_btn(self):
+        """模式切换（展开/收起）时立即撤掉小球（无淡出）。"""
+        self._close_hide_timer.stop()
+        self._close_fade_anim.stop()
+        self.close_btn.hide()
+        self._close_btn_fx.setOpacity(0.0)
+
+    def _on_close_btn(self):
+        if self._anim_running() or self._morph > 0.01:
+            return
+        self._confirm_quit()
+
+    def _build_quit_box(self):
+        """退出确认弹窗（深色定制、置顶跟随主窗口、默认聚焦取消）。"""
+        box = QMessageBox(self)
+        box.setWindowTitle("Key 用量面板")
+        box.setText("确认关闭 Key 用量面板吗？")
+        box.setIcon(QMessageBox.NoIcon)
+        btn_quit = box.addButton("确认关闭", QMessageBox.AcceptRole)
+        btn_cancel = box.addButton("取消", QMessageBox.RejectRole)
+        box.setDefaultButton(btn_cancel)
+        box.setWindowFlags(box.windowFlags() | Qt.WindowStaysOnTopHint)
+        box.setStyleSheet(
+            f"QMessageBox {{ background-color: {BG.name()}; }}"
+            f" QMessageBox QLabel {{ color: {TEXT.name()}; font-size: 13px; }}"
+            f" QPushButton {{ background-color: {HEADER_BG.name()}; color: {TEXT.name()};"
+            f"  border: 1px solid {GRID.name()}; border-radius: 6px; padding: 6px 18px; }}"
+            f" QPushButton:hover {{ background-color: {GRID.name()}; }}"
+            f" QPushButton:default {{ border: 1px solid {ACCENT.name()}; }}"
+        )
+        return box, btn_quit
+
+    def _confirm_quit(self):
+        box, btn_quit = self._build_quit_box()
+        box.exec()
+        if box.clickedButton() is btn_quit:
+            self._save_state()
+            QApplication.instance().quit()
+
     def _on_app_state(self, state):
         # 点击窗口外部（应用失焦）→ 自动收起回圆球
         if (state == Qt.ApplicationInactive
@@ -681,6 +839,7 @@ class MainWindow(QMainWindow):
     def _expand(self):
         if self._anim_running() or self._morph >= 1.0:
             return
+        self._dismiss_close_btn()
         self._mode = "table"
         self._table_w, self._table_h = self._calc_table_size()
         self.table.resize(self._table_w, self._table_h)
@@ -703,6 +862,7 @@ class MainWindow(QMainWindow):
     def _collapse(self):
         if self._anim_running() or self._morph <= 0.0:
             return
+        self._dismiss_close_btn()
         self._mode = "orb"
         # 阶段1：表格文字渐隐 ∥ 方形收缩回圆球（背景 dip 同展开）
         self._morph_anim.setDuration(280)
