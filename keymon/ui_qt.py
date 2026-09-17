@@ -13,7 +13,7 @@ from PySide6.QtCore import (
     QSequentialAnimationGroup,
 )
 from PySide6.QtGui import (
-    QColor, QFont, QIcon, QPainter, QPainterPath, QPen, QBrush, QPixmap,
+    QColor, QCursor, QFont, QIcon, QPainter, QPainterPath, QPen, QBrush, QPixmap,
 )
 from PySide6.QtWidgets import (
     QApplication, QFrame, QGridLayout, QGraphicsOpacityEffect, QHBoxLayout,
@@ -403,6 +403,9 @@ class MainWindow(QMainWindow):
         # 置顶/拖动/展开动画行为不受影响（关闭小球同款先例）。
         self.setWindowFlags(Qt.Tool | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
         self.setAttribute(Qt.WA_TranslucentBackground)
+        # hover 期间也要收 mouseMoveEvent：合成 Enter 可能被吞（见 _close_suppress_pos），
+        # 真实 hover 以"光标在窗内移动"兜底判定
+        self.setMouseTracking(True)
 
         self.providers = []
         self.results = {}
@@ -473,6 +476,10 @@ class MainWindow(QMainWindow):
         self._close_hide_timer.setInterval(CLOSE_BTN_HIDE_DELAY_MS)
         self._close_hide_timer.timeout.connect(self._start_close_pop_out)
         self.close_btn.installEventFilter(self)  # hover 桥接：进入按钮取消隐藏倒计时
+        # v8：收回完成后 Qt 补发的"合成 Enter"防误判。收回结束时记录光标位置，
+        # 光标未发生真实移动前的 Enter 一律视为合成事件（主窗改 Qt.Tool 后，
+        # 该 Enter 会排在动画 finished 之后到达，"运行中"守卫失效）。
+        self._close_suppress_pos = None
 
         # V4 三阶段时序（展开）：
         #   阶段2（220ms）：彩环旋转回缩到 0（OutCubic，像被卷走）∥ 数字/底环线性淡出，
@@ -658,6 +665,12 @@ class MainWindow(QMainWindow):
             self._pressed = True
 
     def mouseMoveEvent(self, event):
+        if self._close_suppress_pos is not None:
+            # 光标发生真实移动：解除合成 Enter 抑制，并按真实 hover 重新判定
+            self._close_suppress_pos = None
+            if (self._mode == "orb" and self._morph <= 0.01
+                    and not self._anim_running()):
+                self._start_close_pop_in()
         if event.buttons() & Qt.LeftButton and self._pressed:
             self.move(event.globalPosition().toPoint() - self._drag_pos)
 
@@ -683,6 +696,7 @@ class MainWindow(QMainWindow):
         if obj is self.close_btn:
             if event.type() == QEvent.Enter:
                 self._close_hide_timer.stop()
+                self._close_suppress_pos = None  # 光标真实进入按钮 = 必有移动
                 # 收回途中真实 hover 按钮（Enter 只在光标进入时产生，不会是合成假事件）：
                 # 立即改向弹出，避免按钮从光标下"抽走"
                 if (self._close_pop_anim.state() == QAbstractAnimation.Running
@@ -697,10 +711,14 @@ class MainWindow(QMainWindow):
         if self._close_pop_anim.state() == QAbstractAnimation.Running:
             return  # 弹出/收回动画进行中不重启：收回途中主窗 Enter 是按钮抽走时光标未动
         # 合成的假事件，真实返回由按钮 Enter（eventFilter）改向
+        if (self._close_suppress_pos is not None
+                and QCursor.pos() == self._close_suppress_pos):
+            return  # v8：收回完成后补发的合成 Enter，光标未动 → 非真实 hover
         if (self.close_btn.isVisible()
                 and self._close_btn_fx.opacity() >= 0.99
                 and self._btn_parent_rect() == self._close_full_rect):
             return  # 已完整弹出
+        self._close_suppress_pos = None
         self._start_close_pop(True)
 
     def _start_close_pop_out(self):
@@ -741,6 +759,8 @@ class MainWindow(QMainWindow):
             self.close_btn.hide()
             self._btn_set_parent_rect(self._close_dot_rect)
             self._close_btn_fx.setOpacity(0.0)
+            # 记录 dismissal 时光标位置：此后光标未动的 Enter 视为 Qt 补发的合成事件
+            self._close_suppress_pos = QCursor.pos()
 
     def _dismiss_close_btn(self):
         """模式切换（展开/收起）时立即撤掉小球（无动画）。"""
@@ -749,6 +769,7 @@ class MainWindow(QMainWindow):
         self.close_btn.hide()
         self._btn_set_parent_rect(self._close_dot_rect)
         self._close_btn_fx.setOpacity(0.0)
+        self._close_suppress_pos = None
 
     def _on_close_btn(self):
         if self._anim_running() or self._morph > 0.01:

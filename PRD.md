@@ -421,3 +421,34 @@ D:\Mings_Project\key-usage-widget\
 - [x] V7-M2 托盘图标 + 右键菜单（显示/隐藏、开机自启勾选、退出复用确认弹窗）+ 左键切换可见性
 - [x] V7-M3 `autostart.py`：HKCU Run 读写、pythonw 定位、托盘勾选与注册表同步、不可用兜底
 - [x] V7-M4 实测（离屏 18 项全过：flags/菜单结构/显隐切换/注册表读写与恢复/托盘联动；真实启动 ui.log 无异常）+ README/PRD 同步 + 本地提交
+
+# v8 修复：关闭小球收回完成后"闪出又消失"（合成 Enter 时序回归）
+
+## v8-1 现象与根因
+
+阿泽实测（v7 上线后）：关闭按钮返回圆球的动画仍会"先回到圆球、然后快速闪出来又消失"。
+V6-M11 曾修过同款症状，v7 主窗改 `Qt.Tool` 后复发。
+
+离屏复现（`tests/offscreen_v8_closebtn.py` PASS D）锁定根因：收回途中按钮从光标下抽走，
+Qt 补发的合成 Enter 在 v6 时序下排在动画帧之前到达（被"运行中"守卫拦下）；主窗改
+`Qt.Tool` 后事件投递时序变化，该 Enter 排在了 `finished`（hide+复位）**之后**——到达时
+动画已结束，守卫失效 → 误判 hover 重启弹出；用户继续移开鼠标 → 200ms 倒计时 → 再次收回。
+主观即"回到圆球 → 闪出来 → 消失"。
+
+## v8-2 修复方案（`keymon/ui_qt.py`）
+
+- **dismissal 位置记录**：`_on_close_pop_done`（收回完成）记录 `QCursor.pos()` 到
+  `_close_suppress_pos`；`_start_close_pop_in` 里光标位置未变时的 Enter 一律视为
+  合成事件，直接忽略（不再依赖"动画运行中"这一时序巧合）。
+- **真实移动解除抑制**：主窗开 `mouseTracking`，`mouseMoveEvent` 里光标一有真实移动
+  即清除抑制并按真实 hover 重新判定弹出——合成 Enter 被吞的场景由"光标在窗内移动"
+  兜底，行为比纯 Enter 驱动更稳。
+- 真实 hover 按钮（eventFilter Enter）天然伴随移动，同步清除抑制；V6-M11 的
+  运行中守卫、hover 桥接、倒计时防抖全部保留。
+
+## v8-3 里程碑 checklist
+
+- [x] V8-M1 离屏复现锁定根因（PASS D 修复前稳定 FAIL：收回完成后合成 Enter 误弹出）
+- [x] V8-M2 修复：dismissal 位置抑制 + mouseTracking 真实移动兜底，
+      V6-M11 回归（运行中不改向/真实 hover 改向）不破坏，离屏 7 项全过 + v7 回归 18 项全过
+- [x] V8-M3 真实启动 ui.log 无异常 + README/PRD 同步 + 本地提交

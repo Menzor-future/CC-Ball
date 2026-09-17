@@ -79,6 +79,9 @@ python tests/smoke.py
 # V7 离屏自测：任务栏隐藏/托盘菜单/开机自启（18 项断言）
 python tests/offscreen_v7.py
 
+# V8 离屏复现+回归：关闭小球收回完成后"闪出又消失"（合成 Enter 抑制）
+python tests/offscreen_v8_closebtn.py
+
 # 带控制台启动 UI，便于看报错
 python app.pyw
 ```
