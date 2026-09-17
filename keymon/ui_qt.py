@@ -80,8 +80,8 @@ ORB_STROKE = 7
 # 悬停关闭小球
 CLOSE_BTN_SIZE = 24          # 终点直径（完整按钮）
 CLOSE_BTN_DOT_SIZE = 6       # 起点直径（圆球沿上的点）
-CLOSE_BTN_POP_IN_MS = 260    # 飞出：球沿小点 → 右上角按钮
-CLOSE_BTN_POP_OUT_MS = 200   # 收回：按钮 → 球沿小点
+CLOSE_BTN_POP_IN_MS = 450    # 飞出：球沿小点 → 悬浮卫星位
+CLOSE_BTN_POP_OUT_MS = 350   # 收回：悬浮卫星位 → 球沿小点
 CLOSE_BTN_HIDE_DELAY_MS = 200  # 移出后延迟隐藏，给"球→按钮"鼠标移动留缓冲，防闪烁
 
 
@@ -340,7 +340,12 @@ class CloseOrbButton(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        # 尺寸/位置由弹出动画驱动（球沿小点 → 右上角按钮）
+        # 独立小窗：可绘制在主窗口之外（子控件会被裁剪在父窗口内）
+        # Tool + 无边框：不进任务栏、不抢 alt-tab；不抢焦点，点击不干扰主窗失焦逻辑
+        self.setWindowFlags(Qt.Tool | Qt.FramelessWindowHint)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setAttribute(Qt.WA_ShowWithoutActivating)
+        # 尺寸/位置由弹出动画驱动（球沿小点 → 悬浮卫星位）
         self.setCursor(Qt.PointingHandCursor)
         self._hovered = False
         self._bg = QColor(HEADER_BG)
@@ -440,10 +445,10 @@ class MainWindow(QMainWindow):
 
         # 悬停关闭小球（v6）：默认隐藏，orb 模式悬停时从球沿"弹出"到右上角
         self.close_btn = CloseOrbButton(self)
-        # 弹出动画两端：起点=圆球右上沿 45° 处的小点（探出球沿）；终点=窗口最右上角
-        # （球外即窗外，(76,0) 是物理上离球最远的合法位置）
+        # 弹出动画两端：起点=圆球右上沿 45° 处的小点（探出球沿）；终点=悬浮于圆球斜上方的
+        # "卫星位"——独立小窗可画在主窗口外（父坐标 (102,-20)，与主窗零重叠）
         self._close_dot_rect = QRect(79, 15, CLOSE_BTN_DOT_SIZE, CLOSE_BTN_DOT_SIZE)
-        self._close_full_rect = QRect(ORB_SIZE - CLOSE_BTN_SIZE, 0, CLOSE_BTN_SIZE, CLOSE_BTN_SIZE)
+        self._close_full_rect = QRect(102, -20, CLOSE_BTN_SIZE, CLOSE_BTN_SIZE)
         self.close_btn.setGeometry(self._close_dot_rect)
         self.close_btn.clicked.connect(self._on_close_btn)
         self._close_btn_fx = QGraphicsOpacityEffect(self.close_btn)
