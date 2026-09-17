@@ -452,3 +452,31 @@ Qt 补发的合成 Enter 在 v6 时序下排在动画帧之前到达（被"运�
 - [x] V8-M2 修复：dismissal 位置抑制 + mouseTracking 真实移动兜底，
       V6-M11 回归（运行中不改向/真实 hover 改向）不破坏，离屏 7 项全过 + v7 回归 18 项全过
 - [x] V8-M3 真实启动 ui.log 无异常 + README/PRD 同步 + 本地提交
+
+# v9 改造：打包为可安装/卸载的 Windows 应用
+
+## v9-1 背景
+
+阿泽需求（2026-09-17）：把项目做成"正经应用"——可安装、可在「设置→应用」里卸载。
+选定路线 A：PyInstaller 打包 exe + Inno Setup 做安装向导（阿泽拍板）。
+
+## v9-2 方案
+
+- **PyInstaller**：`--onefile --windowed --name key-usage-widget` → `dist\key-usage-widget.exe`。
+  `autostart.py` 的 `sys.frozen` 分支接管（开机自启直接指向 exe 自身，不再依赖 pythonw+脚本）。
+- **Inno Setup**（`installer.iss`）：
+  - 用户级安装（免管理员）：`%LOCALAPPDATA%\Programs\key-usage-widget\`；
+  - 开始菜单快捷方式；桌面快捷方式作为可选项（默认不勾）；
+  - 注册到「设置→应用」（Uninstall 注册表项：图标/版本/发布者/卸载命令）；
+  - 安装向导任务页提供「开机自启」勾选，**默认不勾**；与托盘勾选写同一个
+    HKCU Run 项（`autostart.py` 单一事实来源不变，两处天然同步）；
+  - 卸载：删安装目录 + 删 HKCU Run 项 + 询问是否删除 `%LOCALAPPDATA%\key-usage-widget` 配置目录。
+- **版本号**：`config.py` 新增 `APP_VERSION`，Inno 脚本与 README 引用同一版本。
+
+## v9-3 里程碑 checklist
+
+- [x] V9-M1 工具链就绪：`pip install pyinstaller`（6.22.3）+ Inno Setup 6.7.3（winget，用户级安装于 `%LOCALAPPDATA%\Programs\Inno Setup 6`）
+- [x] V9-M2 PyInstaller 打包：`key-usage-widget.exe` 46.3MB（onefile+windowed），双击实测悬浮窗/托盘/表格预热全部正常；frozen 分支自启命令指向 exe（验证通过）
+- [x] V9-M3 `installer.iss`：用户级安装（`PrivilegesRequired=lowest` + `PrivilegesRequiredOverridesAllowed=commandline` 保静默也走用户级）、开始菜单快捷方式、自启勾选（默认不勾，与托盘同一 Run 项）、注册卸载项（AppId GUID + UninstallDisplayIcon）、卸载清理安装目录+Run 项+交互询问删配置
+- [x] V9-M4 实测静默安装→运行→静默卸载全流程（安装目录/自启注册表/卸载条目全部验证；应用运行 ui.log 正常、任务栏无入口；卸载后无残留、配置目录保留）+ README/PRD 同步 + 本地提交
+- 踩坑记录：① Git Bash 会把 `/VERYSILENT` 等 Inno 参数按 Unix 路径规则转译成 `C:/Program Files/Git/...`，静默安装必须用 PowerShell 调；② `PrivilegesRequiredOverridesAllowed=dialog` 静默模式也弹"安装模式选择"对话框导致卡死，改 `commandline`；③ 应用名含 CJK 且无中文语言包时向导页标题 ANSI 乱码，`[Messages]` 段覆盖为英文；④ Inno 官方版不内置简体中文语言包，任务描述写中英双语。

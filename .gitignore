@@ -7,3 +7,9 @@ venv/
 # IDE
 .idea/
 .vscode/
+
+# PyInstaller / Inno Setup 产物
+build/
+dist/
+installer/
+*.spec

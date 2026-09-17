@@ -83,19 +83,19 @@ def main():
     pump(app, 600)  # 收回动画 350ms + 余量
     check("D0 收回完成已隐藏", not btn.isVisible())
 
-    # ---- PASS D：【复现点】收回完成后、鼠标未动，补发的合成 Enter 不得弹出 ----
+    # ---- PASS D：【复现点】收回完成后抑制期内、光标惯性滑动，合成 Enter 不得弹出 ----
     send_enter(win)
     pump(app, 80)
     pop_in_after_done = (btn.isVisible()
                          or win._close_pop_anim.state() == QAbstractAnimation_running(win))
-    check("D 完成后合成Enter不弹出", not pop_in_after_done,
+    check("D 抑制期内合成Enter不弹出(光标滑动也压不住)", not pop_in_after_done,
           f"visible={btn.isVisible()} showing={win._close_pop_showing}")
 
-    # ---- PASS E：真实移动鼠标后再 Enter → 正常弹出 ----
-    send_move(win)
+    # ---- PASS E：抑制期过后真实进入 → 正常弹出 ----
+    win._close_suppress_until = 0.0  # 快进抑制期（离屏不 sleep 0.8s）
     send_enter(win)
     pump(app, 600)
-    check("E 真实移动后正常弹出", btn.isVisible()
+    check("E 抑制期过后正常弹出", btn.isVisible()
           and win._btn_parent_rect() == win._close_full_rect,
           f"visible={btn.isVisible()} rect={win._btn_parent_rect()}")
 

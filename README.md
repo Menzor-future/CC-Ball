@@ -20,17 +20,35 @@
 - **开机自启**：写 `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`（用户级，免管理员），取消勾选即删除
 - 拖动窗口后自动记忆位置与展开/收起状态
 
-## 安装与运行
+## 安装与运行（推荐：安装包）
 
-1. 确保已安装 Python 3.9+（Windows 商店版或官方版均可，需带 tkinter）。
-2. 克隆/拷贝本项目到任意目录。
-3. 双击 `app.pyw` 即可启动，无黑框。
+最终用户**无需安装 Python 或任何前置软件**，一次安装即用：
 
-或者命令行：
+1. 运行 `installer\KeyUsageWidget-Setup-1.0.0.exe`，跟随向导安装（可选勾选"开机自启动"，默认不勾）；
+2. 从开始菜单启动「Key 用量面板」，悬浮球出现在桌面，任务栏不显示、托盘有图标；
+3. 卸载走「设置 → 应用 → Key 用量面板 → 卸载」，卸载时可选择是否删除配置数据。
+
+### 免安装（开发/便携）
+
+需要 Python 3.9+ 与 PySide6：
 
 ```powershell
+pip install pyside6
 pythonw app.pyw
 ```
+
+### 自己打包（开发者）
+
+```powershell
+pip install pyinstaller
+pyinstaller --onefile --windowed --name key-usage-widget --distpath dist --workpath build --specpath . app.pyw
+# 然后用 Inno Setup 6 编译 installer.iss：
+& "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe" installer.iss
+# 产物：installer\KeyUsageWidget-Setup-<版本>.exe
+```
+
+> 注意：静默安装/卸载测试必须用 PowerShell 调用安装程序——Git Bash 会把 `/VERYSILENT` 这类
+> 参数按 Unix 路径规则转译成 `C:/Program Files/Git/...`，导致安装程序弹向导卡死。
 
 ## 配置（可选）
 

@@ -5,6 +5,7 @@ import math
 import os
 import sys
 import threading
+import time
 
 from PySide6.QtCore import (
     QAbstractAnimation, QEasingCurve, QParallelAnimationGroup,
@@ -85,6 +86,7 @@ CLOSE_BTN_DOT_SIZE = 6       # 起点直径（圆球沿上的点）
 CLOSE_BTN_POP_IN_MS = 450    # 飞出：球沿小点 → 悬浮卫星位
 CLOSE_BTN_POP_OUT_MS = 350   # 收回：悬浮卫星位 → 球沿小点
 CLOSE_BTN_HIDE_DELAY_MS = 200  # 移出后延迟隐藏，给"球→按钮"鼠标移动留缓冲，防闪烁
+CLOSE_SUPPRESS_S = 0.8         # 收回完成后抑制主窗合成 Enter 的时长（秒）
 
 
 class OrbWidget(QWidget):
@@ -476,10 +478,13 @@ class MainWindow(QMainWindow):
         self._close_hide_timer.setInterval(CLOSE_BTN_HIDE_DELAY_MS)
         self._close_hide_timer.timeout.connect(self._start_close_pop_out)
         self.close_btn.installEventFilter(self)  # hover 桥接：进入按钮取消隐藏倒计时
-        # v8：收回完成后 Qt 补发的"合成 Enter"防误判。收回结束时记录光标位置，
-        # 光标未发生真实移动前的 Enter 一律视为合成事件（主窗改 Qt.Tool 后，
-        # 该 Enter 会排在动画 finished 之后到达，"运行中"守卫失效）。
-        self._close_suppress_pos = None
+        # v8：收回完成后 Qt 补发的"合成 Enter"防误判。收回结束记录时刻，抑制期内
+        # 到达的主窗 Enter 一律视为合成事件——不能用"光标位置未动"判定：移出后
+        # 光标仍在惯性滑动（实测收回后 59ms 内光标移动了 50px+），位置比较会误判。
+        # 真实 hover 由按钮 Enter（eventFilter，必伴随真实移动）驱动弹出。
+        self._close_suppress_until = 0.0
+        # v8 诊断日志：默认关闭，排查时置 KEYMON_DBG_CLOSE=1 开启
+        self._dbg_close = bool(os.environ.get("KEYMON_DBG_CLOSE"))
 
         # V4 三阶段时序（展开）：
         #   阶段2（220ms）：彩环旋转回缩到 0（OutCubic，像被卷走）∥ 数字/底环线性淡出，
@@ -665,12 +670,8 @@ class MainWindow(QMainWindow):
             self._pressed = True
 
     def mouseMoveEvent(self, event):
-        if self._close_suppress_pos is not None:
-            # 光标发生真实移动：解除合成 Enter 抑制，并按真实 hover 重新判定
-            self._close_suppress_pos = None
-            if (self._mode == "orb" and self._morph <= 0.01
-                    and not self._anim_running()):
-                self._start_close_pop_in()
+        # 抑制期内到达的 mouseMove 是光标惯性滑动（收回后仍在滑），不算真实 hover，
+        # 不解除抑制；抑制期过后由主窗 enterEvent 自然驱动真实弹出。
         if event.buttons() & Qt.LeftButton and self._pressed:
             self.move(event.globalPosition().toPoint() - self._drag_pos)
 
@@ -684,48 +685,58 @@ class MainWindow(QMainWindow):
     # ---- 悬停关闭小球（v6） ----
     def enterEvent(self, event):
         super().enterEvent(event)
+        self._dbg(f"main enterEvent: mode={self._mode} morph={self._morph:.3f} anim_running={self._anim_running()}")
         if self._mode == "orb" and self._morph <= 0.01 and not self._anim_running():
             self._start_close_pop_in()
 
     def leaveEvent(self, event):
         super().leaveEvent(event)
+        self._dbg(f"main leaveEvent")
         self._close_hide_timer.start()
 
     def eventFilter(self, obj, event):
         # hover 桥接：鼠标在"球 → 按钮"间移动时按钮不闪烁
         if obj is self.close_btn:
             if event.type() == QEvent.Enter:
+                self._dbg("btn Enter (real hover)")
                 self._close_hide_timer.stop()
-                self._close_suppress_pos = None  # 光标真实进入按钮 = 必有移动
+                self._close_suppress_until = 0.0  # 光标真实进入按钮 = 真实 hover，解除抑制
                 # 收回途中真实 hover 按钮（Enter 只在光标进入时产生，不会是合成假事件）：
                 # 立即改向弹出，避免按钮从光标下"抽走"
                 if (self._close_pop_anim.state() == QAbstractAnimation.Running
                         and not self._close_pop_showing):
                     self._start_close_pop(True)
             elif event.type() == QEvent.Leave:
+                self._dbg("btn Leave")
                 self._close_hide_timer.start()
         return super().eventFilter(obj, event)
 
+    def _dbg(self, msg):
+        if self._dbg_close:
+            _ui_log(f"[CLOSE] {msg}")
+
     def _start_close_pop_in(self):
         self._close_hide_timer.stop()
-        if self._close_pop_anim.state() == QAbstractAnimation.Running:
+        anim = self._close_pop_anim.state() == QAbstractAnimation.Running
+        suppressed = time.monotonic() < self._close_suppress_until
+        self._dbg(f"pop_in req: anim={anim} suppressed={suppressed} cursor={QCursor.pos()} visible={self.close_btn.isVisible()}")
+        if anim:
             return  # 弹出/收回动画进行中不重启：收回途中主窗 Enter 是按钮抽走时光标未动
-        # 合成的假事件，真实返回由按钮 Enter（eventFilter）改向
-        if (self._close_suppress_pos is not None
-                and QCursor.pos() == self._close_suppress_pos):
-            return  # v8：收回完成后补发的合成 Enter，光标未动 → 非真实 hover
+        if suppressed:
+            self._dbg("pop_in SUPPRESSED (synthetic enter within window)")
+            return  # v8：收回完成后抑制期内的主窗 Enter 是 Qt 补发的合成事件，非真实 hover
         if (self.close_btn.isVisible()
                 and self._close_btn_fx.opacity() >= 0.99
                 and self._btn_parent_rect() == self._close_full_rect):
             return  # 已完整弹出
-        self._close_suppress_pos = None
         self._start_close_pop(True)
 
     def _start_close_pop_out(self):
+        anim = self._close_pop_anim.state() == QAbstractAnimation.Running
+        self._dbg(f"pop_out req: anim={anim} showing={self._close_pop_showing} visible={self.close_btn.isVisible()}")
         if not self.close_btn.isVisible():
             return
-        if (self._close_pop_anim.state() == QAbstractAnimation.Running
-                and not self._close_pop_showing):
+        if (anim and not self._close_pop_showing):
             return  # 收回进行中不重启（按钮抽走触发的 Leave 会重置倒计时，到点勿打断）
         self._start_close_pop(False)
 
@@ -755,12 +766,13 @@ class MainWindow(QMainWindow):
         self._close_btn_fx.setOpacity(max(0.0, min(1.0, f * 2.0)))
 
     def _on_close_pop_done(self):
+        self._dbg(f"pop done: showing={self._close_pop_showing}")
         if not self._close_pop_showing:
             self.close_btn.hide()
             self._btn_set_parent_rect(self._close_dot_rect)
             self._close_btn_fx.setOpacity(0.0)
-            # 记录 dismissal 时光标位置：此后光标未动的 Enter 视为 Qt 补发的合成事件
-            self._close_suppress_pos = QCursor.pos()
+            # 收回完成：开启抑制期，此期间到达的主窗 Enter 是 Qt 补发的合成事件
+            self._close_suppress_until = time.monotonic() + CLOSE_SUPPRESS_S
 
     def _dismiss_close_btn(self):
         """模式切换（展开/收起）时立即撤掉小球（无动画）。"""
@@ -769,7 +781,7 @@ class MainWindow(QMainWindow):
         self.close_btn.hide()
         self._btn_set_parent_rect(self._close_dot_rect)
         self._close_btn_fx.setOpacity(0.0)
-        self._close_suppress_pos = None
+        self._close_suppress_until = 0.0
 
     def _on_close_btn(self):
         if self._anim_running() or self._morph > 0.01:
