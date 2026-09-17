@@ -34,7 +34,7 @@ pythonw app.pyw
 
 | 常量 | 说明 | 默认值 |
 |---|---|---|
-| `PROXY_URL` | HTTP 代理地址，留空则直连 | `http://127.0.0.1:7890` |
+| `PROXY_URL` | 备用代理地址。直连优先；仅当直连出现连接被拒/超时/DNS 失败时回退到此代理重试，留空则永远直连 | `http://127.0.0.1:7890` |
 | `REFRESH_INTERVAL_S` | 自动刷新间隔（秒） | `60` |
 | `LOW_BALANCE_CNY` | DeepSeek 余额低于该值变橙色提醒 | `5.0` |
 | `WINDOW_ALPHA` | 背景不透明度（0.0–1.0），DWM 不可用时作为 fallback | `0.90` |

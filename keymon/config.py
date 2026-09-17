@@ -11,7 +11,9 @@ CC_SWITCH_DB = os.path.join(CC_SWITCH_DIR, "cc-switch.db")
 CC_SWITCH_SETTINGS = os.path.join(CC_SWITCH_DIR, "settings.json")
 
 # ---- 网络 ----
-PROXY_URL = "http://127.0.0.1:7890"  # Clash；留空字符串则直连
+# 直连优先；仅当直连出现传输层错误（连接被拒/超时/DNS 失败）时，
+# 才回退到该代理重试。留空字符串则禁用代理回退，永远直连。
+PROXY_URL = "http://127.0.0.1:7890"  # Clash
 HTTP_TIMEOUT_S = 10
 
 # ---- 行为 ----

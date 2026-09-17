@@ -1,38 +1,105 @@
 # -*- coding: utf-8 -*-
-"""并发查询每个 provider 的用量/余额。全程不输出密钥。"""
+"""并发查询每个 provider 的用量/余额。全程不输出密钥。
+
+网络策略（v5）：直连优先，传输层失败自动回退代理重试一次；成功模式被记忆，
+本批次剩余请求与下一批次沿用。HTTPError（4xx/5xx 鉴权/服务端问题）不回退。
+"""
+import datetime as dt
 import json
+import os
 import threading
 import time
 import urllib.error
 import urllib.request
 from collections import namedtuple
 
-from .config import HTTP_TIMEOUT_S, PROXY_URL
+from .config import HTTP_TIMEOUT_S, PROXY_URL, USER_CONFIG_PATH
 
 KeyInfo = namedtuple("KeyInfo", ["key", "result", "elapsed"])
 
-
-def _build_opener():
-    if PROXY_URL:
-        handler = urllib.request.ProxyHandler({"http": PROXY_URL, "https": PROXY_URL})
-        return urllib.request.build_opener(handler)
-    return urllib.request.build_opener()
+_UI_LOG_PATH = os.path.join(os.path.dirname(USER_CONFIG_PATH), "ui.log")
 
 
-_opener = _build_opener()
+def _log(msg):
+    """写入 ui.log（与 ui_qt._ui_log 同格式）；日志失败不影响业务。"""
+    try:
+        with open(_UI_LOG_PATH, "a", encoding="utf-8") as f:
+            f.write(f"{dt.datetime.now():%H:%M:%S.%f} {msg}\n")
+    except Exception:
+        pass
 
 
-def _request(url, token):
-    req = urllib.request.Request(
-        url,
-        headers={
-            "Authorization": f"Bearer {token}",
-            "User-Agent": "key-usage-widget/0.2 (readonly)",
-            "Accept": "application/json",
-        },
-    )
-    with _opener.open(req, timeout=HTTP_TIMEOUT_S) as r:
-        return json.loads(r.read().decode("utf-8", "replace"))
+# ---- 直连/代理双 opener 缓存 ----
+
+_openers = {}
+_openers_lock = threading.Lock()
+
+_DIRECT = "direct"
+_PROXY = "proxy"
+
+
+def _get_opener(mode):
+    with _openers_lock:
+        op = _openers.get(mode)
+        if op is None:
+            if mode == _PROXY and PROXY_URL:
+                handler = urllib.request.ProxyHandler({"http": PROXY_URL, "https": PROXY_URL})
+                op = urllib.request.build_opener(handler)
+            else:
+                # 空 ProxyHandler：显式禁用环境变量/系统注册表里的代理，才是真"直连"
+                op = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+            _openers[mode] = op
+        return op
+
+
+# ---- 成功模式记忆（线程安全）----
+
+_preferred = _DIRECT  # 阿泽指定：优先无代理
+_preferred_lock = threading.Lock()
+
+
+def _current_mode():
+    with _preferred_lock:
+        return _preferred
+
+
+def _remember_mode(mode):
+    global _preferred
+    with _preferred_lock:
+        if _preferred != mode:
+            _preferred = mode
+            return True
+    return False
+
+
+def _request(url, token, label=""):
+    """带代理回退的 GET。首选模式失败且为传输层错误（连接被拒/超时/DNS）时，
+    切另一模式重试一次；HTTPError 直接抛出不回退。"""
+    first = _current_mode()
+    second = _PROXY if first == _DIRECT else _DIRECT
+    last_exc = None
+    for i, mode in enumerate((first, second)):
+        try:
+            req = urllib.request.Request(
+                url,
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "User-Agent": "key-usage-widget/0.2 (readonly)",
+                    "Accept": "application/json",
+                },
+            )
+            with _get_opener(mode).open(req, timeout=HTTP_TIMEOUT_S) as r:
+                data = json.loads(r.read().decode("utf-8", "replace"))
+            if _remember_mode(mode):
+                _log(f"net mode -> {mode} ({label})")
+            return data
+        except urllib.error.HTTPError:
+            raise  # 鉴权/服务端问题，换代理无意义
+        except OSError as exc:  # URLError/socket.timeout 均为 OSError 子类
+            last_exc = exc
+            if i == 0:
+                _log(f"net {first} failed ({label}): {type(exc).__name__}: {str(exc)[:120]}; trying {second}")
+    raise last_exc
 
 
 def _fmt_error(exc):
@@ -54,14 +121,14 @@ def query_kimi_usages(token):
 
     def fetch_usages():
         try:
-            results["usages"] = _request("https://api.kimi.com/coding/v1/usages", token)
+            results["usages"] = _request("https://api.kimi.com/coding/v1/usages", token, label="kimi/usages")
         except Exception as exc:
             with lock:
                 errors.append(_fmt_error(exc))
 
     def fetch_me():
         try:
-            results["me"] = _request("https://api.kimi.com/coding/v1/me", token)
+            results["me"] = _request("https://api.kimi.com/coding/v1/me", token, label="kimi/me")
         except Exception:
             # 账号名非关键，失败可忽略
             pass
@@ -108,7 +175,7 @@ def query_deepseek_balance(token):
     """查询 DeepSeek 余额，返回 dict 或带 error 字段。"""
     try:
         start = time.time()
-        data = _request("https://api.deepseek.com/user/balance", token)
+        data = _request("https://api.deepseek.com/user/balance", token, label="deepseek/balance")
         elapsed = time.time() - start
         infos = data.get("balance_infos", [])
         if not infos:
