@@ -518,6 +518,16 @@ class MainWindow(QMainWindow):
             s = event.size()
             _ui_log(f"[DBG] resize -> {s.width()}x{s.height()} morph={self._morph:.3f} running={self._anim_running()}")
 
+    def moveEvent(self, event):
+        super().moveEvent(event)
+        # Qt.Tool 独立小窗不会自动跟随主窗，需手动吸附（拖动/变形时保持徽章位）
+        btn = getattr(self, "close_btn", None)
+        if btn is None or not btn.isVisible():
+            return
+        if self._close_pop_anim.state() == QAbstractAnimation.Running:
+            return  # 帧处理器用的是父内坐标，天然跟随
+        btn.move(self._close_full_rect.topLeft())
+
     # ---- 变形动画属性（几何） ----
     def _get_morph(self):
         return self._morph
