@@ -13,13 +13,15 @@ from PySide6.QtCore import (
     QSequentialAnimationGroup,
 )
 from PySide6.QtGui import (
-    QColor, QFont, QPainter, QPainterPath, QPen, QBrush, QPixmap,
+    QColor, QFont, QIcon, QPainter, QPainterPath, QPen, QBrush, QPixmap,
 )
 from PySide6.QtWidgets import (
     QApplication, QFrame, QGridLayout, QGraphicsOpacityEffect, QHBoxLayout,
-    QLabel, QMainWindow, QMessageBox, QSizePolicy, QSpacerItem, QVBoxLayout,
-    QWidget,
+    QLabel, QMainWindow, QMenu, QMessageBox, QSizePolicy, QSpacerItem,
+    QSystemTrayIcon, QVBoxLayout, QWidget,
 )
+
+from . import autostart
 
 from .config import (
     LOW_BALANCE_CNY,
@@ -397,7 +399,9 @@ class MainWindow(QMainWindow):
 
     def __init__(self):
         super().__init__()
-        self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
+        # Qt.Tool：不进任务栏、不出现在 Alt+Tab（v7，阿泽要求只留托盘入口）；
+        # 置顶/拖动/展开动画行为不受影响（关闭小球同款先例）。
+        self.setWindowFlags(Qt.Tool | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
         self.setAttribute(Qt.WA_TranslucentBackground)
 
         self.providers = []
@@ -851,6 +855,9 @@ class MainWindow(QMainWindow):
         self._orb_color = color
         self._orb_text = text
         self.update()
+        tray = getattr(self, "_tray", None)
+        if tray is not None:
+            tray.update_orb(pct, color)
 
     def _orb_value(self, provider, res):
         if not provider:
@@ -963,16 +970,121 @@ class MainWindow(QMainWindow):
         super().closeEvent(event)
 
 
+class TrayController(QObject):
+    """系统托盘（v7）：右键菜单（显示/隐藏面板、开机自启勾选、退出），左键切换可见性。
+    图标与圆球同设计语言（深灰底 + 轨道环 + 彩弧），并跟随圆球当前用量变色。"""
+
+    def __init__(self, window):
+        super().__init__()
+        self._window = window
+
+        self._tray = QSystemTrayIcon(self)
+        self._tray.setToolTip("Key 用量面板")
+        self._tray.setIcon(self._make_icon(None, TEXT_DIM))
+
+        self._menu = QMenu()
+        self._menu.setStyleSheet(
+            f"QMenu {{ background-color: {BG.name()}; color: {TEXT.name()};"
+            f" border: 1px solid {GRID.name()}; }}"
+            f" QMenu::item {{ padding: 6px 24px 6px 20px; }}"
+            f" QMenu::item:selected {{ background-color: {GRID.name()}; }}"
+            f" QMenu::item:checked {{ color: {ACCENT.name()}; }}"
+            f" QMenu::separator {{ height: 1px; background-color: {GRID.name()}; margin: 4px 8px; }}"
+        )
+        self._toggle_action = self._menu.addAction("隐藏面板")
+        self._toggle_action.triggered.connect(self._toggle_window)
+        self._autostart_action = self._menu.addAction("开机自启动")
+        self._autostart_action.setCheckable(True)
+        try:
+            self._autostart_action.setChecked(autostart.is_enabled())
+        except Exception as e:
+            _ui_log(f"tray: read autostart state failed: {e}")
+        self._autostart_action.toggled.connect(self._on_autostart_toggled)
+        self._menu.addSeparator()
+        self._quit_action = self._menu.addAction("退出")
+        self._quit_action.triggered.connect(self._window._confirm_quit)
+
+        self._menu.aboutToShow.connect(self._sync_toggle_text)
+        self._tray.setContextMenu(self._menu)
+        self._tray.activated.connect(self._on_activated)
+        self._tray.show()
+
+    def update_orb(self, pct, color):
+        """圆球数据刷新时同步托盘图标（彩弧 = 当前 5h 已用量）。"""
+        self._tray.setIcon(self._make_icon(pct, color))
+
+    @staticmethod
+    def _make_icon(pct, color):
+        pm = QPixmap(32, 32)
+        pm.fill(Qt.transparent)
+        p = QPainter(pm)
+        p.setRenderHint(QPainter.Antialiasing)
+        p.setPen(Qt.NoPen)
+        p.setBrush(QBrush(QColor(BG)))
+        p.drawEllipse(2, 2, 28, 28)
+        ring = QRectF(7, 7, 18, 18)
+        track_pen = QPen(ORB_TRACK, 3)
+        track_pen.setCapStyle(Qt.RoundCap)
+        p.setPen(track_pen)
+        p.setBrush(Qt.NoBrush)
+        p.drawEllipse(ring)
+        if pct is not None:
+            arc_pen = QPen(color, 3)
+            arc_pen.setCapStyle(Qt.RoundCap)
+            p.setPen(arc_pen)
+            p.drawArc(ring, 90 * 16, -int(pct * 3.6 * 16))
+        p.end()
+        return QIcon(pm)
+
+    def _sync_toggle_text(self):
+        self._toggle_action.setText("隐藏面板" if self._window.isVisible() else "显示面板")
+
+    def _on_activated(self, reason):
+        if reason == QSystemTrayIcon.Trigger:  # 左键单击
+            self._toggle_window()
+
+    def _toggle_window(self):
+        w = self._window
+        if w.isVisible():
+            w.hide()
+        else:
+            w.show()
+            w.raise_()
+
+    def _on_autostart_toggled(self, checked):
+        try:
+            if checked:
+                autostart.enable()
+            else:
+                autostart.disable()
+            _ui_log(f"tray: autostart -> {'on' if checked else 'off'}")
+        except Exception as e:
+            _ui_log(f"tray: autostart toggle failed: {e}")
+            # 写注册表失败：回退勾选，与注册表实际状态保持一致
+            try:
+                self._autostart_action.setChecked(autostart.is_enabled())
+            except Exception:
+                pass
+
+
 def main():
     _reset_ui_log()
     _ui_log("=== main() start ===")
     try:
         app = QApplication(sys.argv)
-        app.setQuitOnLastWindowClosed(True)
+        # 有托盘时"最后窗口关闭不退出"（任务栏已无入口，退出只能走托盘菜单）；
+        # 托盘不可用降级为旧行为：关窗即退出。
+        tray_available = QSystemTrayIcon.isSystemTrayAvailable()
+        app.setQuitOnLastWindowClosed(not tray_available)
 
         window = MainWindow()
         window.show()
         _ui_log(f"window shown: visible={window.isVisible()}, pos=({window.x()},{window.y()}), size={window.size()}")
+
+        if tray_available:
+            window._tray = TrayController(window)
+        else:
+            _ui_log("WARN: system tray not available, tray disabled")
 
         if _DBG_MORPH:
             _ui_log(f"[DBG] devicePixelRatioF={window.devicePixelRatioF()} screenDPI={window.screen().logicalDotsPerInch()}")

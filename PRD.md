@@ -383,3 +383,41 @@ D:\Mings_Project\key-usage-widget\
 - 离屏新增 PASS 10（合成 Enter 不打断收回）/ PASS 11（真实 hover 反向弹出）回归锁定。
 
 - [x] V6-M11 收回动画防重入：合成 Enter 不改向，真实 hover 改向，倒计时不重触发
+
+# v7 改造：任务栏隐藏 + 系统托盘 + 开机自启
+
+## v7-1 背景
+
+阿泽需求（2026-09-17）：
+
+1. 默认**任务栏不显示** python 这项应用（目前主窗在任务栏有按钮）。
+2. 仅在右下角系统托盘显示图标。
+3. 托盘**右键菜单支持退出**。
+4. 支持**是否开机自启**的配置（勾选切换）。
+
+## v7-2 方案
+
+- **任务栏隐藏**（`keymon/ui_qt.py`）：主窗 `MainWindow.setWindowFlags` 增加 `Qt.Tool`
+  （项目内已有先例：关闭小球即 Qt.Tool，天然不进任务栏、不抢焦点）。
+  副作用接受：Alt+Tab 列表不再出现面板（对本悬浮件属预期）；置顶/拖动/动画行为不变。
+- **系统托盘**：`QSystemTrayIcon` + 程序化生成的圆点图标（QPixmap 画圆，配色同面板），
+  tooltip「Key 用量面板」。托盘可用性兜底：极少数环境托盘不可用时降级为只保留原行为，
+  并在 ui.log 记一行警告，不影响主功能。
+- **右键菜单**（`QMenu`，深色调试图配色）：
+  - 「显示 / 隐藏面板」——切换主窗可见性；
+  - 「开机自启」——checkable，勾选状态即注册表实际状态；
+  - 「退出」——复用现有退出确认弹窗（V6-M2），确认后保存状态退出。
+  - 左键单击托盘图标：等同「显示 / 隐藏面板」。
+- **开机自启**（新模块 `keymon/autostart.py`）：
+  - 写 `HKCU\Software\Microsoft\Windows\CurrentVersion\Run\key-usage-widget`，
+    值为 `"<pythonw.exe>" "<app.pyw 绝对路径>"`；取消自启即删该值。
+  - pythonw 定位：`sys.executable`，若 basename 是 `python.exe` 则同目录换成 `pythonw.exe`
+    （无控制台黑框）；预留 `sys.frozen` 分支兼容未来 exe 打包。
+  - 注册表是单一事实来源，托盘勾选状态实时读注册表，启动时不同步写配置。
+
+## v7-3 里程碑 checklist
+
+- [x] V7-M1 主窗加 `Qt.Tool` 隐藏任务栏按钮 + 离屏断言（flags 含 Tool、任务栏无关几何不变）
+- [x] V7-M2 托盘图标 + 右键菜单（显示/隐藏、开机自启勾选、退出复用确认弹窗）+ 左键切换可见性
+- [x] V7-M3 `autostart.py`：HKCU Run 读写、pythonw 定位、托盘勾选与注册表同步、不可用兜底
+- [x] V7-M4 实测（离屏 18 项全过：flags/菜单结构/显隐切换/注册表读写与恢复/托盘联动；真实启动 ui.log 无异常）+ README/PRD 同步 + 本地提交

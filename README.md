@@ -14,7 +14,10 @@
 - **Claude Official**：账号名固定显示 `Claude`；5h/7day 预留，需要 Claude Code 登录后的 OAuth token（本机未登录时显示 `N/A`）
 - 当前使用的 provider 行文字加粗 + 背景高亮
 - 每分钟自动刷新；展开状态下 footer 左侧 ⟳ 可手动刷新，右侧 ✕ 收起回圆球
-- 鼠标悬停圆球时，右上角浮出小圆关闭按钮（hover 变红），点击弹确认框后退出——软件唯一的退出入口
+- 鼠标悬停圆球时，右上角浮出小圆关闭按钮（hover 变红），点击弹确认框后退出
+- **任务栏不显示**（Qt.Tool 窗口），只在右下角系统托盘显示图标（与圆球同设计，彩弧跟随当前 5h 已用量变色）
+- **托盘右键菜单**：显示/隐藏面板、开机自启动（勾选）、退出（复用退出确认弹窗）；左键单击托盘图标切换面板显隐
+- **开机自启**：写 `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`（用户级，免管理员），取消勾选即删除
 - 拖动窗口后自动记忆位置与展开/收起状态
 
 ## 安装与运行
@@ -72,6 +75,9 @@ python -m keymon.quota
 
 # 数据层冒烟测试
 python tests/smoke.py
+
+# V7 离屏自测：任务栏隐藏/托盘菜单/开机自启（18 项断言）
+python tests/offscreen_v7.py
 
 # 带控制台启动 UI，便于看报错
 python app.pyw
