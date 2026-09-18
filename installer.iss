@@ -4,7 +4,7 @@
 #define AppName "Key 用量面板"
 #define AppExeName "key-usage-widget.exe"
 ; 版本号与 keymon/config.py 的 APP_VERSION 保持一致
-#define AppVersion "1.0.0"
+#define AppVersion "1.1"
 #define AppPublisher "Ming"
 
 [Setup]

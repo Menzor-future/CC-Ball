@@ -4,7 +4,7 @@ import json
 import os
 
 APP_DIR_NAME = "key-usage-widget"
-APP_VERSION = "1.0.0"
+APP_VERSION = "1.1"
 
 # ---- cc-switch（key 的单一事实来源，全程只读）----
 CC_SWITCH_DIR = os.path.join(os.path.expanduser("~"), ".cc-switch")
