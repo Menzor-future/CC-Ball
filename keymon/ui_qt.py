@@ -893,6 +893,8 @@ class MainWindow(QMainWindow):
             tray.update_orb(pct, color)
 
     def _orb_value(self, provider, res):
+        # v10：圆球与表格统一显示【剩余量】语义（阿泽决定）——
+        # 弧环越满=剩得越多=绿色安心；快用完时弧环近空+变红，像电量告急。
         if not provider:
             return None, TEXT_DIM, "--"
         ptype = provider.get("provider_type", "custom")
@@ -900,16 +902,17 @@ class MainWindow(QMainWindow):
             remaining = res.get("h5_remaining")
             if remaining is None:
                 return None, TEXT_DIM, "N/A"
-            used = max(0.0, min(1.0, 1.0 - remaining))
-            pct = int(used * 100)
-            return pct, self._used_color(used), f"{pct}%"
+            remaining = max(0.0, min(1.0, remaining))
+            pct = int(remaining * 100)
+            return pct, self._remaining_color(remaining), f"{pct}%"
         return None, TEXT_DIM, "N/A"
 
     @staticmethod
-    def _used_color(used):
-        if used >= 0.8:
+    def _remaining_color(remaining):
+        """按剩余量配色：剩 <20% 红、<50% 橙、其余绿（与表格 _pct_color 同阈值）。"""
+        if remaining < 0.2:
             return RED
-        if used >= 0.5:
+        if remaining < 0.5:
             return ORANGE
         return GREEN
 

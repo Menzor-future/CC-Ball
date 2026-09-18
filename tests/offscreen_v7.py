@@ -62,8 +62,17 @@ def main():
     check("10 再切回显示", win.isVisible())
 
     # 圆球数据 → 托盘图标联动（不 crash 即可）
-    tray.update_orb(60, win._used_color(0.6))
+    tray.update_orb(60, win._remaining_color(0.6))
     check("11 托盘图标联动更新", not tray._tray.icon().isNull())
+
+    # v10 语义：圆球显示剩余量（与表格一致）
+    fake_provider = {"provider_type": "kimi"}
+    pct, color, text = win._orb_value(fake_provider, {"h5_remaining": 0.99})
+    check("11b 圆球显示剩余量", pct == 99 and text == "99%", f"pct={pct} text={text}")
+    pct2, color2, _ = win._orb_value(fake_provider, {"h5_remaining": 0.05})
+    from keymon.ui_qt import RED as _RED, GREEN as _GREEN
+    check("11c 剩余5%显示红色", pct2 == 5 and color2 == _RED, f"pct={pct2}")
+    check("11d 剩余99%显示绿色", color == _GREEN)
 
     # ---- V7-M3：autostart 注册表读写（真机 HKCU，测后恢复） ----
     orig = None
