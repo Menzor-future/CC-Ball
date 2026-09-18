@@ -1,7 +1,9 @@
 name: build-mac
 
-# 手动触发：Actions 页选本 workflow → Run workflow，产出两个 dmg（Intel / Apple Silicon）
+# 推送到 main 自动构建；也可在 Actions 页手动 Run workflow
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
 
 jobs:
