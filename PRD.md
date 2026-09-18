@@ -541,4 +541,8 @@ mac 包必须在 macOS 环境产出；现有代码多处 Windows-only（winreg/�
       跟随 config；v7 18 项 / v8 7 项回归全过。ui.py 为 v3 起废弃的 tkinter 版，不移植）
 - [ ] V11-M3 mac 侧打包产出 `.app`/`.dmg`，朋友实测：读他自己的 cc-switch、
       托盘/悬浮球/自启正常、Gatekeeper 绕过说明有效
+      （2026-09-18 云端构建完成：run#2 双架构 success，
+      artifact `KeyUsageWidget-mac-arm64.dmg` 38.7MB / `KeyUsageWidget-mac-x86_64.dmg` 42.6MB；
+      踩坑：macos-13 runner 已退役导致 Intel job 永远排队，换官方替代 macos-15-intel 即通。
+      待阿泽把 dmg 发给朋友实测）
 - [ ] V11-M4 README（mac 安装说明）/PRD 同步 + 本地提交
