@@ -2,9 +2,23 @@
 """全局配置：路径、网络、阈值、用户配置读写。"""
 import json
 import os
+import sys
 
 APP_DIR_NAME = "key-usage-widget"
 APP_VERSION = "1.1"
+
+
+def _user_data_dir():
+    """用户数据目录（配置/日志），按平台惯例：
+    Windows: %LOCALAPPDATA%\\key-usage-widget
+    macOS:   ~/Library/Application Support/key-usage-widget
+    """
+    if sys.platform == "darwin":
+        return os.path.join(os.path.expanduser("~"), "Library", "Application Support", APP_DIR_NAME)
+    return os.path.join(
+        os.environ.get("LOCALAPPDATA", os.path.expanduser("~")), APP_DIR_NAME
+    )
+
 
 # ---- cc-switch（key 的单一事实来源，全程只读）----
 CC_SWITCH_DIR = os.path.join(os.path.expanduser("~"), ".cc-switch")
@@ -25,10 +39,7 @@ LOW_BALANCE_CNY = 5.0      # DeepSeek 余额低于该值卡片变橙提醒
 WINDOW_ALPHA = 0.90        # 背景不透明度（0.0-1.0）
 
 # ---- 用户配置（窗口位置等，可写）----
-USER_CONFIG_PATH = os.path.join(
-    os.environ.get("LOCALAPPDATA", os.path.expanduser("~")),
-    APP_DIR_NAME, "config.json",
-)
+USER_CONFIG_PATH = os.path.join(_user_data_dir(), "config.json")
 
 DEFAULT_USER_CONFIG = {
     "geometry": None,  # 窗口位置尺寸，如 "320x400+100+100"

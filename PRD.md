@@ -506,3 +506,38 @@ Qt 补发的合成 Enter 在 v6 时序下排在动画帧之前到达（被"运�
 - [x] V10-M2 圆球改剩余量语义 + 配色阈值与表格对齐 + 离屏语义断言（99%绿/5%红），
       v7/v8 回归全过（v8 时序抖动需单独跑，连跑 3 次稳定）
 - [x] V10-M3 重新打包 exe 并热替换安装目录，实测运行正常 + README/PRD 同步 + 本地提交
+
+# v11 改造：macOS 移植（给朋友用）
+
+## v11-1 背景
+
+阿泽需求（2026-09-18）：打 Mac 版给朋友用。硬约束：PyInstaller 不可交叉编译，
+mac 包必须在 macOS 环境产出；现有代码多处 Windows-only（winreg/路径/字体/托盘行为）。
+
+## v11-2 方案
+
+- **打包环境**（待阿泽选定）：A 借 Mac 本机打包 / B GitHub Actions macOS runner 云打包 /
+  C 朋友自助跑源码。
+- **平台抽象**（`sys.platform` 分支）：
+  - `autostart.py`：win32 走注册表（现状），darwin 走 LaunchAgents
+    （`~/Library/LaunchAgents/com.key-usage-widget.plist`，RunAtLoad=true）；
+  - `config.py`：配置/日志目录改 `platformdirs`（Win: `%LOCALAPPDATA%`，
+    mac: `~/Library/Application Support/`）；cc-switch 路径保持 `~/.cc-switch`（跨平台约定）；
+  - `ui_qt.py`：字体 mac 用 `PingFang SC`；托盘行为按 mac 菜单栏习惯微调；
+  - 数据层（ccdb/quota）天然平台无关，零改动。
+- **分发**：`.app` 打 `.dmg`（或 zip）；未签名需"右键→打开"绕过 Gatekeeper，
+  README 写清楚（朋友场景不买 $99/年开发者账号）。
+
+## v11-3 里程碑 checklist
+
+- [ ] V11-M1 阿泽选定打包环境（A/B/C），B 则建好 GitHub workflow
+      （2026-09-18：阿泽选 B；`.github/workflows/build-mac.yml` 已本地写好——
+      macos-13/14 双架构 matrix，产出 .app + dmg artifact，LSUIElement 隐藏 Dock 图标。
+      待阿泽提供 GitHub 仓库名/公私属性并授权推送后生效）
+- [x] V11-M2 平台抽象改造：autostart/config/ui 三处分支 + Windows 回归（v7/v8/v10 全过）
+      （2026-09-18 完成：config.py `_user_data_dir()` 免第三方依赖手写分支；autostart.py
+      darwin 写 LaunchAgents plist；ui_qt.py 字体分支 PingFang SC；app.pyw boot 日志目录
+      跟随 config；v7 18 项 / v8 7 项回归全过。ui.py 为 v3 起废弃的 tkinter 版，不移植）
+- [ ] V11-M3 mac 侧打包产出 `.app`/`.dmg`，朋友实测：读他自己的 cc-switch、
+      托盘/悬浮球/自启正常、Gatekeeper 绕过说明有效
+- [ ] V11-M4 README（mac 安装说明）/PRD 同步 + 本地提交

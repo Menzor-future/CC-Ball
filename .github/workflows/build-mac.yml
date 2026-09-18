@@ -1,0 +1,48 @@
+name: build-mac
+
+# 手动触发：Actions 页选本 workflow → Run workflow，产出两个 dmg（Intel / Apple Silicon）
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-13   # Intel x86_64
+            arch: x86_64
+          - os: macos-14   # Apple Silicon arm64
+            arch: arm64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install pyside6 pyinstaller
+
+      - name: Build .app
+        run: |
+          pyinstaller --windowed --name KeyUsageWidget \
+            --distpath dist --workpath build --specpath . \
+            app.pyw
+
+      - name: Hide Dock icon (menu-bar/tray app)
+        run: |
+          /usr/libexec/PlistBuddy -c "Add :LSUIElement bool true" \
+            dist/KeyUsageWidget.app/Contents/Info.plist
+
+      - name: Create DMG
+        run: |
+          hdiutil create -volname KeyUsageWidget \
+            -srcfolder dist/KeyUsageWidget.app -ov -format UDZO \
+            KeyUsageWidget-mac-${{ matrix.arch }}.dmg
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: KeyUsageWidget-mac-${{ matrix.arch }}
+          path: KeyUsageWidget-mac-${{ matrix.arch }}.dmg

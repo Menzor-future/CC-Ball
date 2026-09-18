@@ -40,6 +40,9 @@ _UI_LOG_PATH = os.path.join(os.path.dirname(USER_CONFIG_PATH), "ui.log")
 # 变形几何调试：置 1 时记录每次 resize 的真实尺寸，并在启动后自动循环展开/收起
 _DBG_MORPH = bool(os.environ.get("KEYMON_DBG_MORPH"))
 
+# 圆球数字字体：mac 无微软雅黑，用苹方（macOS 10.11+ 内置）
+UI_FONT_FAMILY = "PingFang SC" if sys.platform == "darwin" else "Microsoft YaHei UI"
+
 
 def _ui_log(msg):
     try:
@@ -430,7 +433,7 @@ class MainWindow(QMainWindow):
         self._orb_pct = None
         self._orb_color = TEXT_DIM
         self._orb_text = "--"
-        self._orb_font = QFont("Microsoft YaHei UI", 14, QFont.Bold)
+        self._orb_font = QFont(UI_FONT_FAMILY, 14, QFont.Bold)
         self._bg_brush = QBrush(BG)
         self._track_pen = QPen(ORB_TRACK, ORB_STROKE)
         self._track_pen.setCapStyle(Qt.RoundCap)
