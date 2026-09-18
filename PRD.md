@@ -530,10 +530,11 @@ mac 包必须在 macOS 环境产出；现有代码多处 Windows-only（winreg/�
 
 ## v11-3 里程碑 checklist
 
-- [ ] V11-M1 阿泽选定打包环境（A/B/C），B 则建好 GitHub workflow
-      （2026-09-18：阿泽选 B；`.github/workflows/build-mac.yml` 已本地写好——
-      macos-13/14 双架构 matrix，产出 .app + dmg artifact，LSUIElement 隐藏 Dock 图标。
-      待阿泽提供 GitHub 仓库名/公私属性并授权推送后生效）
+- [x] V11-M1 阿泽选定打包环境（A/B/C），B 则建好 GitHub workflow
+      （2026-09-18：阿泽选 B；`.github/workflows/build-mac.yml` macos-13/14 双架构 matrix，
+      产出 .app + dmg artifact，LSUIElement 隐藏 Dock 图标，push main 自动触发 + 手动触发。
+      已推送 git@github.com:Menzor-future/CC-Ball.git：main=全项目压缩单提交（orphan），
+      feature/key-usage-widget=完整 52 提交历史；本机 SSH 公钥已添加到 GitHub 账号）
 - [x] V11-M2 平台抽象改造：autostart/config/ui 三处分支 + Windows 回归（v7/v8/v10 全过）
       （2026-09-18 完成：config.py `_user_data_dir()` 免第三方依赖手写分支；autostart.py
       darwin 写 LaunchAgents plist；ui_qt.py 字体分支 PingFang SC；app.pyw boot 日志目录
